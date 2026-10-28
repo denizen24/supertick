@@ -9,7 +9,7 @@ one-shot acceptance checker and a set of verifiers at the end. What sets it apar
 turn waiting for news. It goes to sleep on a background script, and that script wakes it only
 when the team needs a decision.
 
-This is 1.1.0. The loop itself has been used on real runs since September 2026 (our earlier 0.14
+This is 1.1.1. The loop itself has been used on real runs since September 2026 (our earlier 0.14
 to 0.17 line); before release, supertick ran on its own repository at the SIMPLE, MEDIUM and
 COMPLEX levels.
 

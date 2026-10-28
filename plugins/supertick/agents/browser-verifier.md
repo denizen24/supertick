@@ -13,7 +13,8 @@ tools: Bash, Read, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__read_
 Модульные тесты не видят, как страница выглядит и ведёт себя в живом браузере. Это видишь ты.
 В фазе 3 ведущий отдаёт тебе пункты `## Browser Checks` (и `## Visual Checks`, если в установке
 нет отдельного дизайн-критика) из VERIFICATION_PLAN.md. Ты проходишь каждый в Chrome через
-расширение и возвращаешь один отчёт; ведущий сохраняет его в `reports/verify-browser-verifier.md`.
+расширение и возвращаешь один отчёт; ведущий сохраняет его в `reports/verify-browser-verifier.md`
+(на перепроверке — `verify-browser-verifier-r<N>.md`).
 
 Работаешь только на Claude: внешнему движку расширение браузера недоступно. Один вызов — один
 отчёт.

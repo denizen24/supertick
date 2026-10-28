@@ -23,6 +23,7 @@
       движок упал или досчитал, а результат никто не забрал (15 мин, у прокси 3 —
       engine_unread_sec); участник молчит дольше двух интервалов
   P1  DONE участника, которого ведущий ещё не отметил в PLAN.md (accept_needed);
+      тот же DONE, когда в mail/unified-reviewer/ нет REVIEW по задаче (done_without_review);
       готовый отчёт приёмки reports/accept-task<id>.md при статусе ACCEPTING (accept_result);
       письмо ведущему без ответа (QUESTION / ESCALATION / SENSITIVE / QUEUED);
       первая минута: участник молчит уже 3 минуты (один раз)
@@ -384,10 +385,19 @@ def tick(run_dir, root=None, now=None):
             add("P0", kind.lower(), run=letter["from"], detail=letter["first"], ref=f"mail/lead/{letter['file']}")
         elif kind in NEEDS_ANSWER:
             add("P1", "answer_needed", run=letter["from"], detail=f"{kind}: {letter['first']}", ref=f"mail/lead/{letter['file']}")
+    reviewer_box = run_dir / "mail" / "unified-reviewer"
+    reviewed = {m["task"] for m in read_mail(run_dir, "unified-reviewer") if m["kind"] == "REVIEW"} if reviewer_box.is_dir() else None
     for task, letter in mailed_done.items():
         status = tasks.get(task, {}).get("status", "")
         if status == "DONE" or status.startswith(("ACCEPTING", "REOPENED")):
             continue   # принято, либо приёмка уже идёт / задача вернулась кодеру — DONE-письмо отработано
+        if reviewed is not None and task not in reviewed:
+            # ящик рецензента есть, а REVIEW по задаче в нём нет: кодер сдал DONE мимо ревью
+            # (22.10.2026, прокси-кодер coder-5 закоммитил без вердикта; тик показал штатный accept_needed)
+            add("P1", "done_without_review", run=letter["from"],
+                detail=f"task {task}: DONE без REVIEW в mail/unified-reviewer/ (PLAN: {status or 'нет задачи'})",
+                ref=f"mail/lead/{letter['file']}")
+            continue
         add("P1", "accept_needed", run=letter["from"], detail=f"task {task}: {letter['first']} (PLAN: {status or 'нет задачи'})",
             ref=f"mail/lead/{letter['file']}")
 

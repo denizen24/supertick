@@ -320,9 +320,13 @@ Resume того же риск-тестера (id из `<RUN DIR>/engine/risk-tes
 - До REVIEW в `engine/{имя}/` есть `.done` со `status=done` от вызова с правкой; нет — REVIEW не шлёшь.
 - Самопроверки, дифф ревью и коммит — твои, движок не коммитит. Ревью — как в coder.md, шаг 5:
   `status=in_review`; дифф пишешь сам — `git diff HEAD -- <файлы задачи> >` в файл ниже, новые
-  файлы — `--no-index` (шаг 4); `IN_REVIEW` ведущему; рецензенту `REVIEW: task #<id>. Files: <список>`,
-  строками ниже `Diff: <RUN DIR>/reports/review-task<id>-r<n>.diff`, `Handover: <путь>`,
-  `HEAD: <вывод git rev-parse HEAD>` и `Engine: <абсолютный путь к .done вызова движка>`; копия в ящик рецензента.
+  файлы — `--no-index` (шаг 4); `IN_REVIEW` ведущему; сначала копия в ящик рецензента, потом
+  рецензенту `REVIEW: task #<id>. Files: <список>`, строками ниже
+  `Diff: <RUN DIR>/reports/review-task<id>-r<n>.diff`, `Handover: <путь>`,
+  `HEAD: <вывод git rev-parse HEAD>`, `Mail: <имя файла копии>` и `Engine: <абсолютный путь к .done вызова движка>`.
+- Без REVIEW задачи не бывает: «движок всё проверил» — не вердикт. DONE без файла VERDICT в
+  твоём ящике приёмка валит и тик поднимает `done_without_review` (22.10.2026, coder-5 на Cursor
+  закоммитил 0491577 и сдал DONE, не позвав рецензента).
 - Вердикт и ответ ждёшь в переднем плане, Bash `timeout: 570000`: `team-wait.sh {run dir} {имя}
   --task <id> --max 540`; `TIMEOUT:` — `status=in_review note="VERDICT WAIT"` и снова. Любое письмо
   по задаче кончает ожидание: VERDICT — по нему, иное — ответить и ждать снова, а письмо, чью первую

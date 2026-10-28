@@ -97,9 +97,13 @@ handover и в DONE. Не прошло — чини, не сдавай. Зада
 2. Дифф раунда собери сам — коммита до APPROVED нет:
    `git diff HEAD -- <свои пути> > <RUN DIR>/reports/review-task<id>-r<n>.diff`, неотслеживаемые
    новые файлы — `git diff --no-index -- /dev/null <файл> >>` в тот же файл (код 1 — норма).
-3. `IN_REVIEW: task #<id>. Files: <список>` ведущему (`SendMessage(to="main")`).
-4. `REVIEW: task #<id>. Files: <список>` рецензенту, строками ниже `Diff: <путь диффа>`,
-   `Handover: <путь>` и `HEAD: <вывод git rev-parse HEAD>`; копии обоих письмами («Карточка и почта»).
+3. `IN_REVIEW: task #<id>. Files: <список>` ведущему (`SendMessage(to="main")`) и копия письмом.
+4. Сначала копия REVIEW письмом в ящик рецензента (REVIEW COPY, скрипт печатает путь файла),
+   потом `REVIEW: task #<id>. Files: <список>` рецензенту сообщением, строками ниже
+   `Diff: <путь диффа>`, `Handover: <путь>`, `HEAD: <вывод git rev-parse HEAD>` и
+   `Mail: <имя файла копии>`. Порядок строгий: рецензент берёт время из файла письма, и
+   сообщение, обогнавшее файл, даёт вердикт с временем раньше запроса (22.10.2026, задача 3
+   прогона 510 — вердикт на 16 минут раньше своего REVIEW).
 5. VERDICT WAIT в переднем плане, Bash `timeout: 570000`:
    `{plugin}/scripts/team-wait.sh <RUN DIR> <NAME> --task <id> --max 540` (без `--kind`).
 
@@ -180,7 +184,7 @@ handover и в DONE. Не прошло — чини, не сдавай. Зада
 | Первая строка | Кому | Когда |
 |---|---|---|
 | `IN_REVIEW: task #<id>. Files: <список>` | ведущему | прямо перед REVIEW |
-| `REVIEW: task #<id>. Files: <список>` (+ `Diff:`, `Handover:`) | `unified-reviewer` | самопроверка зелёная |
+| `REVIEW: task #<id>. Files: <список>` (+ `Diff:`, `Handover:`, `HEAD:`, `Mail:`) | `unified-reviewer` | самопроверка зелёная, копия письмом уже лежит |
 | `QUESTION: task #<id>. <вопрос>` | ведущему | нужен факт извне |
 | `ESCALATION: task #<id>. <…>` | по `ESCALATIONS:` | образец не подходит |
 | `REVIEW_LOOP: task #<id>. <…>` | по `ESCALATIONS:` | третий круг об одном |
@@ -198,7 +202,9 @@ DONE — пять строк, вторая — `COMMITS: <sha …>` (все ко
 случаи код обрабатывает явно, или `none`.
 
 Доставка. `Resuming agent …` — дошло; `Message sent to <имя>'s inbox` — письмо в ящике, дойдёт
-на следующем ходу адресата, `QUEUED:` не шли. `queued …` — не подтверждено: сразу тот же текст
+на следующем ходу адресата, `QUEUED:` не шли; `Message queued for delivery … If it finishes
+first, it is resumed with the message` и `Message queued for the main conversation's next turn`
+(2.1.308) — тоже дойдёт, `QUEUED:` не шли. Голое `queued …` — не подтверждено: сразу тот же текст
 ведущему с первой строкой `QUEUED: <адресат>` (и письмом с KIND `QUEUED`), адресату повторно не
 пиши. Сообщение с началом `RESEND: from <отправитель>` — копия от ведущего; уже ответил на неё —
 `ALREADY ANSWERED`. Отказ по имени адресата (перезапущен) — ref из текста ошибки; не вышло — `STUCK: cannot reach`.
@@ -252,6 +258,8 @@ python3 {plugin}/scripts/run-state.py set <RUN DIR> <NAME> status=in_review note
 - 21.10.2026 — `task: #3` в шапке письма тик не сопоставил с планом; `task: 3 (rework)` ожидание
   не узнало. С 0.18.1 оба это прощают, но пишется только голый id.
 - 22.10.2026 — фоновый team-wait не будил тиммейта и сам гасил письмо в `.seen`. Ждать — в переднем плане.
+- 22.10.2026 — REVIEW ушёл сообщением раньше копии письмом: рецензент взял время из чужого
+  письма, вердикт встал на 16 минут раньше запроса. Сначала файл, потом сообщение, в нём `Mail:`.
 
 ## Нельзя
 

@@ -90,6 +90,24 @@ class DoneWithoutAccept(unittest.TestCase):
         f.mail("lead", "coder-3", "DONE", "3", "DONE: task 3\nSUMMARY: works")
         self.assertIn(("P1", "accept_needed", "coder-3"), f.kinds())
 
+    def test_done_without_review_letter_in_reviewer_box_is_flagged(self):
+        f = Fixture(self)
+        f.run_card("coder-3", status="done")
+        f.mail("unified-reviewer", "coder-2", "REVIEW", "2", "REVIEW: task #2. Files: src/t2.py")
+        f.mail("lead", "coder-3", "DONE", "3", "DONE: task 3")
+        kinds = f.kinds()
+        self.assertIn(("P1", "done_without_review", "coder-3"), kinds)
+        self.assertNotIn(("P1", "accept_needed", "coder-3"), kinds)
+
+    def test_done_after_review_letter_is_ordinary_acceptance(self):
+        f = Fixture(self)
+        f.run_card("coder-3", status="done")
+        f.mail("unified-reviewer", "coder-3", "REVIEW", "#3", "REVIEW: task #3. Files: src/t3.py")
+        f.mail("lead", "coder-3", "DONE", "3", "DONE: task 3")
+        kinds = f.kinds()
+        self.assertIn(("P1", "accept_needed", "coder-3"), kinds)
+        self.assertNotIn(("P1", "done_without_review", "coder-3"), kinds)
+
     def test_once_lead_marked_done_the_action_disappears(self):
         f = Fixture(self)
         f.run_card("coder-3", status="done")
