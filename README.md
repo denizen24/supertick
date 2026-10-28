@@ -9,7 +9,7 @@ one-shot acceptance checker and a set of verifiers at the end. What sets it apar
 turn waiting for news. It goes to sleep on a background script, and that script wakes it only
 when the team needs a decision.
 
-This is 1.0.0. The loop itself has been used on real runs since September 2026 (our earlier 0.14
+This is 1.1.0. The loop itself has been used on real runs since September 2026 (our earlier 0.14
 to 0.17 line); before release, supertick ran on its own repository at the SIMPLE, MEDIUM and
 COMPLEX levels.
 
@@ -29,6 +29,13 @@ Every task goes through the same gates: the coder's own checks, a single `unifie
 checker that reads only the diff. After the last task come a cross-task consistency pass, build and
 tests, browser checks when the feature has a UI, a sweep for leftover legacy code and a list of
 manual checks for a human.
+
+A team pays off only on COMPLEX work that touches money (payments, balances, plans, charges) or
+security (sign-in, permissions, user data). On anything else the lead stops after rating
+complexity and offers a single session instead, which in our measurements gave the same quality
+2.5 times faster and 6.5 times cheaper. A second run on the same machine does not start while
+another one's loop is alive. The full test suite runs once per run, in the final verification:
+coders and acceptance checkers run only their task's tests.
 
 Design choices that matter:
 
@@ -163,7 +170,11 @@ A path to a `.md` plan works in place of a description. Flags:
 
 - `--coders=N` sets how many coders run in parallel (5 by default);
 - `--no-research` skips the codebase research step;
-- `--engines=off` keeps every role on Claude and ignores the engine config.
+- `--engines=off` keeps every role on Claude and ignores the engine config;
+- `--complexity=simple|medium|complex` sets the level yourself;
+- `--force-team` skips the team gate and runs the team anyway;
+- `--full-run=deferred` is for a feature that ships together with other branches: the full suite
+  is left to one final run after the merge.
 
 For a vague idea, start with `/supertick:interviewed-team-feature`: a short conversation, a brief
 saved under `.briefs/`, then the same run. `/supertick:conventions` builds `.conventions/` once:
