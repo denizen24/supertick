@@ -1,0 +1,4 @@
+{"role":"meta","type":"system.version","version":"2.5.3"}
+--- stderr (exit 1):
+error: failed to run prompt: Session "session_00000000-0000-0000-0000-000000000000" not found.
+See log: /root/.kimi-code/logs/kimi-code.log
