@@ -5,6 +5,7 @@
   "include": [
     {"from": "core/scripts",                           "to": "scripts"},
     {"from": "core/engines",                           "to": "engines"},
+    {"from": "core/references",                        "to": "references"},
     {"from": "hosts/claude-code/agents",               "to": "agents"},
     {"from": "hosts/claude-code/skills",               "to": "skills"},
     {"from": "hosts/claude-code/.claude-plugin",       "to": ".claude-plugin"},

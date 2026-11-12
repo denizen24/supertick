@@ -27,6 +27,17 @@
   has no `result`. The 1.1.1 `kimi` argv is not kept (the old CLI is retired). The Claude Code texts
   still describe the 1.1.1 presets until the lead calls `engine-config.py argv` (P2/H1).
 
+- New `scripts/supertick-setup.py` (F5, nothing calls it yet) and `references/models-catalog.json`: the
+  connection step as a tool that runs from a plain terminal. `discover` finds `claude`, `kimi`, `opencode`,
+  `codex`, `cursor-agent`, `grok`, reads their models from the CLI's own config (Kimi `config.toml`, Codex
+  models cache) or the built-in catalog, and probes each with one headless call (`responds`,
+  `not_logged_in`, `no_answer`, `error`); `plan` and `apply --answers FILE` turn the dialog answers (lead,
+  layout all-on-lead / split / groups, second opinion) into a profile and write it atomically with a
+  backup into `$SUPERTICK_CONFIG` or `~/.config/supertick/config.json`; the 1.1.x `agent-teams.json` is
+  never written. `apply` refuses engines that are not connected and leads that cannot lead
+  (`--force` overrides). `launch <profile>` prints the lead start command; `setup` is the same dialog in a
+  terminal. The lead probe (`lead-probe`, p. 4.5) and the "when to ask" rules (F6) are separate tasks.
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and
