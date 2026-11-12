@@ -1,0 +1,19 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P0 deliver_pending: 11:50 coder-3 -> unified-reviewer | REVIEW: task 3 | OPEN  [pending.log]
+--- memory
+{
+ "checkpoints": {},
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}

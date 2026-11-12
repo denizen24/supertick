@@ -1,0 +1,17 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P0 stuck coder-3: commit hook  [runs/coder-3.json]
+--- memory
+{
+ "checkpoints": {},
+ "firstMinute": {},
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "stuck",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}

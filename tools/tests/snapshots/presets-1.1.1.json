@@ -1,0 +1,42 @@
+{
+  "_note": "Эталон 1.1.1 (121-567, F1): argv четырёх старых пресетов так, как их строит ведущий по engines.md «Пресеты» и «Пример: боевой cursor → argv». Токены: {model} {effort} {sandbox} {mode_flags} {session} разворачивает тест; {prompt} оставляет run-engine.sh. F3/F4 сверяют с этим файлом то, что печатает `engine-config.py argv`. Менять только осознанно, вместе с engines.md.",
+  "access": {
+    "read":  {"sandbox": "read-only",       "mode_flags_cursor": ["--mode", "ask"]},
+    "write": {"sandbox": "workspace-write", "mode_flags_cursor": ["--sandbox", "enabled", "-f"]}
+  },
+  "presets": {
+    "cursor": {
+      "binary": "cursor-agent",
+      "defaults": {"model": "cursor-grok-4.6-xhigh"},
+      "owner_config_model": "grok-4.7-xhigh-fast",
+      "access": ["read", "write"],
+      "cmd":    ["cursor-agent", "-p", "--trust", "--output-format", "json", "--model", "{model}", "{mode_flags}", "--", "{prompt}"],
+      "resume": ["cursor-agent", "-p", "--trust", "--output-format", "json", "--model", "{model}", "{mode_flags}", "--resume", "{session}", "--", "{prompt}"],
+      "session_from": "json:session_id"
+    },
+    "codex": {
+      "binary": "codex",
+      "defaults": {"model": "gpt-5.6-sol", "effort": "xhigh"},
+      "access": ["read", "write"],
+      "cmd":    ["codex", "exec", "--skip-git-repo-check", "--sandbox", "{sandbox}", "-m", "{model}", "-c", "model_reasoning_effort=\"{effort}\"", "{prompt}"],
+      "resume": ["codex", "exec", "resume", "{session}", "{prompt}"],
+      "session_from": "regex:session id: <uuid>"
+    },
+    "kimi": {
+      "binary": "kimi",
+      "defaults": {"model": "kimi-code/k3"},
+      "access": ["read"],
+      "cmd":    ["kimi", "-m", "{model}", "-p", "{prompt}"],
+      "resume": ["kimi", "-r", "{session}", "-p", "{prompt}"],
+      "session_from": "regex:kimi -r session_<id>"
+    },
+    "grok": {
+      "binary": "grok",
+      "defaults": {"model": "grok-4.6", "effort": "high"},
+      "access": ["read", "write"],
+      "cmd":    ["grok", "--sandbox", "{sandbox}", "--always-approve", "-m", "{model}", "--effort", "{effort}", "--session-id", "{session}", "-p", "{prompt}"],
+      "resume": ["grok", "--sandbox", "{sandbox}", "--always-approve", "--effort", "{effort}", "-r", "{session}", "-p", "{prompt}"],
+      "session_from": "caller:--session"
+    }
+  }
+}

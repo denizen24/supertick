@@ -1,0 +1,63 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P3 checkpoint coder-3: 20 мин с последнего события, статус running  [runs/coder-3.json]
+--- memory
+{
+ "checkpoints": {
+  "coder-3": "2026-09-24T12:00:00+00:00"
+ },
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}
+$ tick --now 2026-09-24T12:00:00+00:00
+P4 ok: тихо: событий, требующих ведущего, нет
+--- memory
+{
+ "checkpoints": {
+  "coder-3": "2026-09-24T12:00:00+00:00"
+ },
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}
+$ tick --now 2026-09-24T12:00:00+00:00
+P0 silent_too_long coder-3: 40 мин без событий и без правок в файлах задачи  [runs/coder-3.json]
+--- memory
+{
+ "checkpoints": {
+  "coder-3": "2026-09-24T12:00:00+00:00"
+ },
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}

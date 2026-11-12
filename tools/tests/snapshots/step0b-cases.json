@@ -1,0 +1,156 @@
+{
+  "_note": "Эталон шага 0b (engines.md, «Шаг 0b: разрешение движков») для 1.1.1, 121-567 F1. Ожидания записаны РУКАМИ по правилам текста, а не выведены из кода: в 1.1.1 шаг исполняет сам ведущий, кода у него нет. F3 сверяет с этим файлом `engine-config.py resolve`. table — роль → движок (claude — ушла на Claude, none — только second-reviewer); роли не названные в конфиге в таблицу не входят и идут на Claude. warnings — коды, не тексты. summary_line — печатается ли строка ⚙️ «какие роли на каких движках» (шаг 7). stop — fallback=fail и движка нет. Сравнение: table как словарь, warnings как отсортированный список.",
+  "cases": [
+    {
+      "name": "owner-config-cursor-present",
+      "why": "боевой конфиг владельца: шесть ролей и second-reviewer на cursor, три роли чужих плагинов, пресет cursor переопределён",
+      "config": {
+        "_note": "комментарий владельца, игнорируется",
+        "enabled": true,
+        "fallback": "claude",
+        "roles": {
+          "risk-tester": {"engine": "cursor", "model": "composer-2.5"},
+          "codebase-researcher": {"engine": "cursor", "model": "composer-2.5"},
+          "reference-researcher": {"engine": "cursor", "model": "composer-2.5"},
+          "spec-verifier": {"engine": "cursor", "model": "composer-2.5"},
+          "research-challenger": {"engine": "cursor", "model": "grok-4.7-xhigh"},
+          "research-critic": {"engine": "cursor", "model": "grok-4.7-xhigh"},
+          "rollback-critic": {"engine": "cursor", "model": "grok-4.7-xhigh"},
+          "second-reviewer": {"engine": "cursor", "model": "gpt-5.6-sol-high"},
+          "legacy-scanner": {"engine": "cursor", "model": "composer-2.5"},
+          "architect-backend": {"engine": "cursor", "model": "gpt-5.6-sol-medium"}
+        },
+        "engines": {"cursor": {"_note": "и здесь", "model": "grok-4.7-xhigh-fast", "mode_flags": {"read": "--mode ask", "write": "--sandbox enabled -f"}}}
+      },
+      "available": ["cursor-agent"],
+      "engines_off": false,
+      "expect": {
+        "stop": false,
+        "table": {
+          "risk-tester": "cursor", "codebase-researcher": "cursor", "reference-researcher": "cursor",
+          "spec-verifier": "cursor", "legacy-scanner": "cursor", "architect-backend": "cursor",
+          "second-reviewer": "cursor"
+        },
+        "warnings": [],
+        "summary_line": true
+      }
+    },
+    {
+      "name": "owner-config-cursor-missing",
+      "why": "тот же конфиг, cursor-agent не найден: fallback claude — роли на Claude, второе мнение выключено без строки",
+      "config_from": "owner-config-cursor-present",
+      "available": [],
+      "engines_off": false,
+      "expect": {
+        "stop": false,
+        "table": {
+          "risk-tester": "claude", "codebase-researcher": "claude", "reference-researcher": "claude",
+          "spec-verifier": "claude", "legacy-scanner": "claude", "architect-backend": "claude",
+          "second-reviewer": "none"
+        },
+        "warnings": [
+          "engine_missing:risk-tester:cursor", "engine_missing:codebase-researcher:cursor",
+          "engine_missing:reference-researcher:cursor", "engine_missing:spec-verifier:cursor",
+          "engine_missing:legacy-scanner:cursor", "engine_missing:architect-backend:cursor"
+        ],
+        "summary_line": false
+      }
+    },
+    {
+      "name": "short-form-codex",
+      "why": "короткая форма: ведущий и браузерный проверяющий не переназначаются, снятый id игнорируется, второе мнение совпало с unified-reviewer",
+      "config": {
+        "_comment": "x",
+        "roles": {
+          "unified-reviewer": "codex",
+          "second-reviewer": "codex",
+          "lead": "kimi",
+          "browser-verifier": {"engine": "codex"},
+          "coder": {"engine": "codex", "model": "gpt-5.6-sol"},
+          "security-reviewer": "codex"
+        }
+      },
+      "available": ["codex"],
+      "engines_off": false,
+      "expect": {
+        "stop": false,
+        "table": {"unified-reviewer": "codex", "coder": "codex", "second-reviewer": "none"},
+        "warnings": [
+          "assignment_ignored:lead", "assignment_ignored:browser-verifier",
+          "retired_role:security-reviewer", "second_reviewer_same_engine"
+        ],
+        "summary_line": true
+      }
+    },
+    {
+      "name": "fail-policy-missing-binary",
+      "why": "fallback fail: нет бинаря у tech-lead — прогон останавливается, а не уходит на Claude",
+      "config": {
+        "enabled": true,
+        "fallback": "fail",
+        "_note": "x",
+        "roles": {
+          "spec-verifier": {"engine": "kimi", "_why": "y"},
+          "tech-lead": "grok",
+          "second-reviewer": "cursor"
+        }
+      },
+      "available": ["kimi"],
+      "engines_off": false,
+      "expect": {"stop": true, "reason": "engine_missing:tech-lead:grok"}
+    },
+    {
+      "name": "fail-policy-binaries-present-second-reviewer-free",
+      "why": "то же при полном наборе бинарей, кроме cursor: второе мнение от fail свободно — просто none",
+      "config_from": "fail-policy-missing-binary",
+      "available": ["kimi", "grok"],
+      "engines_off": false,
+      "expect": {
+        "stop": false,
+        "table": {"spec-verifier": "kimi", "tech-lead": "grok", "second-reviewer": "none"},
+        "warnings": [],
+        "summary_line": true
+      }
+    },
+    {
+      "name": "no-second-reviewer-key",
+      "why": "ключа second-reviewer нет — выключен, а не на Claude",
+      "config": {"roles": {"spec-verifier": "cursor"}},
+      "available": ["cursor-agent"],
+      "engines_off": false,
+      "expect": {"stop": false, "table": {"spec-verifier": "cursor", "second-reviewer": "none"}, "warnings": [], "summary_line": true}
+    },
+    {
+      "name": "disabled-in-config",
+      "why": "enabled=false — всё на Claude, в ленту ничего",
+      "config": {"enabled": false, "roles": {"spec-verifier": "cursor", "second-reviewer": "cursor"}},
+      "available": ["cursor-agent"],
+      "engines_off": false,
+      "expect": {"stop": false, "table": {}, "warnings": [], "summary_line": false}
+    },
+    {
+      "name": "engines-off-flag",
+      "why": "--engines=off действует как enabled=false на один прогон",
+      "config_from": "owner-config-cursor-present",
+      "available": ["cursor-agent"],
+      "engines_off": true,
+      "expect": {"stop": false, "table": {}, "warnings": [], "summary_line": false}
+    },
+    {
+      "name": "broken-json",
+      "why": "битый JSON — всё на Claude плюс одна строка предупреждения",
+      "config_raw": "{\"roles\": ",
+      "available": ["cursor-agent"],
+      "engines_off": false,
+      "expect": {"stop": false, "table": {}, "warnings": ["broken_json"], "summary_line": false}
+    },
+    {
+      "name": "no-config-file",
+      "why": "файла нет — всё на Claude, тишина",
+      "config_raw": null,
+      "available": ["cursor-agent"],
+      "engines_off": false,
+      "expect": {"stop": false, "table": {}, "warnings": [], "summary_line": false}
+    }
+  ]
+}

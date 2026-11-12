@@ -1,0 +1,21 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P0 engine_dead coder-3: процесс исчез без маркера .done  [<ROOT>/.claude/teams/feature-x/engine/coder-3/001.out]
+P0 engine_failed_unread coder-3: движок упал, отчёт не забран  [<ROOT>/.claude/teams/feature-x/engine/coder-3/002.out.done]
+P0 engine_result_unread coder-3: результат готов 30 мин, никто не забрал  [<ROOT>/.claude/teams/feature-x/engine/coder-3/003.out.result.md]
+--- memory
+{
+ "checkpoints": {},
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}

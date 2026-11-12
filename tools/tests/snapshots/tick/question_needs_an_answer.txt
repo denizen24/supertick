@@ -1,0 +1,19 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P1 answer_needed coder-3: QUESTION: QUESTION: task 3. Which endpoint?  [mail/lead/20260924T115900_coder-3_QUESTION_task3.md]
+--- memory
+{
+ "checkpoints": {},
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "running",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}

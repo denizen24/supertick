@@ -1,0 +1,19 @@
+$ tick --now 2026-09-24T12:00:00+00:00
+P0 undelivered_mail coder-3: VERDICT от unified-reviewer лежит 3 мин, адресат не взял: APPROVED, 0 issues  [mail/coder-3/v.md]
+--- memory
+{
+ "checkpoints": {},
+ "firstMinute": {
+  "coder-3": "ok"
+ },
+ "phase": "",
+ "runs": {
+  "coder-3": {
+   "status": "in_review",
+   "task": "3"
+  }
+ },
+ "tasks": {
+  "3": "IN_PROGRESS(coder-3)"
+ }
+}
