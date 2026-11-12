@@ -46,6 +46,13 @@
   now records `sources` and `installed`, so a new CLI and a vanished source are told apart; hand-written
   profiles without them skip those two checks.
 
+- New `scripts/supertick-doctor.py` (F7, read-only): bundle version from the manifest in the root,
+  host and its level, root (`$SUPERTICK_ROOT` or the folder above `scripts/`), config files with the
+  `validate` result and where profiles are written, the CLIs with versions (`--probe` adds one probe call
+  each), the active profile with its lead, lead-probe result and whether the CLI set still matches the
+  fingerprint, and the step 0 decision of `engine-config.py host`. Exit code 1 on validate errors or a
+  broken config file.
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and
