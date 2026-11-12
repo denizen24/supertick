@@ -40,3 +40,20 @@ python3 tools/build-host.py claude-code --check    # только провери
 
 Каталог `hosts/<хост>/` с `build.json` (`output` и список `include` из пар `from` → `to`, пути от
 корня репозитория, без `..`). Два источника на один выходной файл — ошибка сборки.
+
+## Kimi Code CLI (H1)
+
+`hosts/kimi/` — манифест `kimi.plugin.json`, навыки `team-feature` и `setup`, `primitives.md`;
+`hosts/kimi/build.json` собирает плагин в `build/kimi/supertick/` (не в git): общие скрипты без
+`tests/`, `core/roles`, `core/engines`, `core/references`, `hosts/shared/LEAD.md` и типы агентов
+`agents/supertick-<роль>.md` — бриф роли из `core/roles/` с YAML-шапкой (`frontmatter` в build.json:
+имя, описание, инструменты). Отдельной копии текста роли нет.
+
+```bash
+tools/install-kimi.sh              # собрать и поставить в ~/.kimi-code (реестр — с копией .bak-<время>)
+tools/install-kimi.sh --uninstall  # убрать
+```
+
+Установщик делает то же, что `/plugins install` в интерактивной сессии: копия в
+`~/.kimi-code/plugins/managed/supertick/` и запись в `plugins/installed.json`. Kimi видит навыки
+`supertick:team-feature`, `supertick:setup` и типы `supertick-*` в новой сессии.

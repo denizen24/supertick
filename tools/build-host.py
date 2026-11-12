@@ -14,6 +14,10 @@
   Так CI ловит правку `plugins/supertick/` в обход `core/` и `hosts/`.
 - `--out`: собрать в другой каталог. Непустой чужой каталог не принимается: сборка стирает лишнее.
 - `__pycache__`, `*.pyc`, `.pytest_cache` ни в сборку, ни в сравнение не входят.
+- У пары в `include` могут быть ещё два ключа (121-567, H1):
+  `exclude` — список имён каталогов или файлов, которые из источника-каталога не берутся;
+  `frontmatter` — объект (строки и списки строк), который ставится YAML-шапкой `---` перед текстом
+  файла-источника. Так тип агента среды собирается из брифа роли `core/roles/` без копии текста.
 
 Только stdlib. Код выхода: 0 — готово или совпало; 1 — расхождение в `--check`; 2 — ошибка манифеста.
 """
@@ -57,8 +61,24 @@ def inside(root, rel, what):
     return p
 
 
+def frontmatter(data, where):
+    """YAML-шапка из объекта со строками и списками строк; строки — в кавычках JSON (это валидный YAML)."""
+    if not isinstance(data, dict) or not data:
+        raise BuildError(f"{where}: frontmatter должен быть непустым объектом")
+    lines = ["---"]
+    for key, value in data.items():
+        if isinstance(value, str):
+            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
+        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
+            lines.append(f"{key}:")
+            lines += [f"  - {v}" for v in value]
+        else:
+            raise BuildError(f"{where}: frontmatter.{key} — нужна строка или список строк")
+    return ("\n".join(lines) + "\n---\n\n").encode("utf-8")
+
+
 def collect(root, manifest):
-    """Плоский план сборки: выходной относительный путь -> (источник, исполняемый ли)."""
+    """Плоский план сборки: выходной относительный путь -> (источник, исполняемый ли, шапка-байты)."""
     plan = {}
     for entry in manifest["include"]:
         src_rel = inside(root, entry.get("from", ""), "from")
@@ -66,16 +86,22 @@ def collect(root, manifest):
         src = root / src_rel
         if not src.exists():
             raise BuildError(f"нет источника `{src_rel}`")
+        head = b""
+        if "frontmatter" in entry:
+            if not src.is_file():
+                raise BuildError(f"frontmatter только у файла, а `{src_rel}` — каталог")
+            head = frontmatter(entry["frontmatter"], f"`{src_rel}`")
+        exclude = set(entry.get("exclude") or [])
         files = [src] if src.is_file() else sorted(p for p in src.rglob("*") if p.is_file())
         for f in files:
             rel_in_src = f.relative_to(src) if src.is_dir() else Path()
-            if skipped(rel_in_src) or skipped(Path(f.name)):
+            if skipped(rel_in_src) or skipped(Path(f.name)) or exclude & set(rel_in_src.parts):
                 continue
             dest = dst_rel / rel_in_src if src.is_dir() else dst_rel
             key = dest.as_posix()
             if key in plan:
                 raise BuildError(f"два источника на один выходной файл `{key}`: {plan[key][0].relative_to(root)} и {f.relative_to(root)}")
-            plan[key] = (f, bool(f.stat().st_mode & 0o111))
+            plan[key] = (f, bool(f.stat().st_mode & 0o111), head)
     return plan
 
 
@@ -97,8 +123,8 @@ def diff(plan, out):
     extra = sorted(set(have) - set(plan))
     differs, mode = [], []
     for key in sorted(set(plan) & set(have)):
-        src, exe = plan[key]
-        if (out / key).read_bytes() != src.read_bytes():
+        src, exe, head = plan[key]
+        if (out / key).read_bytes() != head + src.read_bytes():
             differs.append(key)
         elif have[key] != exe:
             mode.append(key)
@@ -108,11 +134,11 @@ def diff(plan, out):
 def write(plan, out):
     missing, differs, mode, extra = diff(plan, out)
     for key in missing + differs + mode:
-        src, exe = plan[key]
+        src, exe, head = plan[key]
         dest = out / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         if key not in mode:
-            shutil.copyfile(src, dest)
+            dest.write_bytes(head + src.read_bytes())
         dest.chmod(0o755 if exe else 0o644)
     for key in extra:
         (out / key).unlink()

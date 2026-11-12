@@ -75,6 +75,15 @@
   `mock-engine.py` gets `SUPERTICK_MOCK_ACT`: a scenario command whose stdout becomes the reply, so a
   test can play coder, reviewer and acceptance without a model.
 
+- Kimi Code CLI adapter (H1): `hosts/kimi/` — `kimi.plugin.json`, skills `team-feature` and `setup`,
+  `primitives.md` (L2: background subagents of the plugin's `supertick-<role>` types, resume by `agent_id`,
+  background `supervisor-wait.sh`). `tools/build-host.py kimi` builds the plugin into `build/kimi/supertick`
+  (not in git); agent types are the `core/roles` briefs with a YAML header from the new `frontmatter` key
+  of `build.json` (and `exclude` keeps `scripts/tests` out). `tools/install-kimi.sh` installs without the
+  interactive `/plugins install` (copy into `plugins/managed/` plus a registry entry, registry backed up).
+  Live SIMPLE from Kimi on 12.11.2026: three tasks DONE, coder resumed for the commit, the lead woke
+  itself, a failing cursor engine fell back to the host (`docs/spikes/h1-kimi-live.md`).
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and
