@@ -38,6 +38,14 @@
   (`--force` overrides). `launch <profile>` prints the lead start command; `setup` is the same dialog in a
   terminal. The lead probe (`lead-probe`, p. 4.5) and the "when to ask" rules (F6) are separate tasks.
 
+- `engine-config.py host` now also decides what the connection step must do (F6, the eight cases of
+  p. 4.4; the Claude Code texts do not call it yet): `action` is `none` (Claude Code without a profile:
+  no question, no line), `line`, `setup`, `ask_restart` (lead of the profile differs from the session:
+  one question, `launch` gives the restart command) or `stop` (non-interactive session that needs a
+  profile). New flags `--setup`, `--non-interactive`, `--available`. A profile written by `setup`
+  now records `sources` and `installed`, so a new CLI and a vanished source are told apart; hand-written
+  profiles without them skip those two checks.
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and

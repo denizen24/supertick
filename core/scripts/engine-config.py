@@ -146,7 +146,11 @@ FALLBACKS = {"host", "fail", "claude"}
 ROLE_KEYS = {"engine", "model", "effort", "sandbox", "access"}
 ENGINE_KEYS = {"model", "effort", "cmd", "resume", "mode_flags", "session", "result", "git_flags"}
 TOP_KEYS = {"enabled", "fallback", "active_profile", "profiles", "roles", "engines"}
-PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe"}
+PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe", "sources", "installed"}
+CLI_BINARIES = ("claude", "kimi", "opencode", "codex", "cursor-agent", "grok")   # CLI, которые учитывает setup (F5)
+LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "codex": "codex -m {model}",
+          "opencode": "opencode -m {model}"}   # команда запуска ведущего: профиль → среда с нужной моделью
+SETUP_COMMAND = "python3 {scripts}/supertick-setup.py setup"
 
 
 # ------------------------------------------------------------------ конфиг
@@ -217,6 +221,16 @@ def effective_roles(cfg, profile):
     for r, s in ((profile or {}).get("roles") or {}).items():
         roles[r] = role_spec(s)   # профиль накладывается поверх: роль заменяется целиком
     return roles
+
+
+def launch_command(lead):
+    """Команда запуска среды с моделью ведущего профиля; пусто, если среда не известна."""
+    tmpl = LAUNCH.get(lead.get("host"))
+    if not tmpl:
+        return ""
+    if not lead.get("model"):
+        return tmpl.replace(" --model {model}", "").replace(" -m {model}", "")
+    return tmpl.format(model=lead["model"])
 
 
 # ------------------------------------------------------------------ движки
@@ -326,6 +340,48 @@ def detect_host(flag, env=None):
     if env.get(HOST_MARKER_ENV) == "1":
         return "claude-code", "env"
     raise ValueError("хост не определён: передайте --host (навык среды делает это сам)")
+
+
+def host_decision(cfg, host, name, profile, model, available, setup_flag=False, interactive=True):
+    """Шаг 0: что делать с подключением (п. 4.4, восемь случаев). Словарь: action, lines, launch, new, vanished.
+
+    action: none (ничего: поведение 1.1.x) | line (строки ⚙️ и дальше) | setup (запустить диалог) |
+    ask_restart (один вопрос: перезапустить командой launch или продолжить на текущей) |
+    stop (неинтерактивной сессии нужен профиль: команда для терминала).
+    """
+    out = {"action": "none", "lines": [], "launch": "", "new": [], "vanished": [], "command": ""}
+    if setup_flag:
+        out["action"] = "setup"
+        return out
+    if profile is None:
+        if host == "claude-code":
+            return out                                            # случай 1: ни вопросов, ни строк
+        out["command"] = SETUP_COMMAND.format(scripts=SCRIPTS_DIR)
+        out["action"] = "setup" if interactive else "stop"        # случаи 2 и 7
+        return out
+    installed_now = {b for b in available if b in CLI_BINARIES}
+    known = profile.get("installed", profile.get("sources"))
+    if known is not None:
+        out["new"] = sorted(installed_now - set(known))           # случай 4
+    if profile.get("sources") is not None:
+        out["vanished"] = sorted(set(profile["sources"]) - installed_now)   # случай 5: строки даст resolve
+    lead = profile.get("lead") or {}
+    mismatch = bool(lead) and (lead.get("host") != host or
+                               bool(model and lead.get("model") and lead["model"] != model))
+    out["action"] = "line"
+    if mismatch:                                                  # случай 6
+        out["launch"] = launch_command(lead)
+        want = lead.get("host", "") + (f"/{lead['model']}" if lead.get("model") else "")
+        if interactive:
+            out["action"] = "ask_restart"
+        else:
+            out["lines"].append(f"⚙️ ведущий профиля {name} ({want}) не совпал с сессией: продолжаем на текущей")
+    else:                                                         # случай 3
+        out["lines"].append(f"⚙️ профиль {name}: ведущий {lead.get('host', host)}"
+                            + (f"/{lead['model']}" if lead.get("model") else ""))
+    for cli in out["new"]:
+        out["lines"].append(f"⚙️ появился {cli}, запустите setup, чтобы включить")
+    return out
 
 
 def binary_of(cfg, engine, host):
@@ -651,7 +707,10 @@ def main(argv):
     top = argparse.ArgumentParser(description="Конфиг движков supertick")
     sub = top.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("host")
-    p.add_argument("--host"); p.add_argument("--model"); p.add_argument("--profile"); common(p)
+    p.add_argument("--host"); p.add_argument("--model"); p.add_argument("--profile")
+    p.add_argument("--setup", action="store_true", help="команда или флаг setup: диалог всегда")
+    p.add_argument("--non-interactive", action="store_true", help="сессия без вопросов человеку")
+    p.add_argument("--available", help="бинари через запятую вместо поиска в системе"); common(p)
     p = sub.add_parser("resolve")
     p.add_argument("--host"); p.add_argument("--profile"); p.add_argument("--engines")
     p.add_argument("--available", help="бинари через запятую вместо поиска в системе"); common(p)
@@ -683,6 +742,10 @@ def main(argv):
                 match = lead.get("host") == host and (not args.model or not lead.get("model") or lead["model"] == args.model)
             data = {"host": host, "source": source, "level": HOSTS[host]["level"],
                     "profile": name if prof is not None else None, "profile_lead": lead, "lead_matches": match}
+            avail = ({b for b in args.available.split(",") if b} if args.available is not None
+                     else discover_available(cfg))
+            data.update(host_decision(cfg, host, name, prof, args.model, avail, setup_flag=args.setup,
+                                      interactive=not args.non_interactive))
             emit(data, args.json, "\n".join(f"{k}: {v}" for k, v in data.items()))
             return 0
         available = None

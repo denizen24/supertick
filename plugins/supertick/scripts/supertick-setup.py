@@ -80,10 +80,6 @@ GROUPS = {
     "researchers": ["codebase-researcher", "reference-researcher", "web-researcher", "legacy-scanner"],
     "verifiers":   ["spec-verifier", "ci-verifier", "risk-tester", "acceptance-checker"],
 }
-LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "codex": "codex -m {model}",
-          "opencode": "opencode -m {model}"}
-
-
 class SetupError(Exception):
     pass
 
@@ -286,7 +282,8 @@ def build_profile(answers, d):
         if spec:
             roles["second-reviewer"] = spec
     profile = {"lead": lead_spec, "roles": roles, "confirmed_at": date.today().isoformat(),
-               "fingerprint": d["fingerprint"]}
+               "fingerprint": d["fingerprint"],
+               "sources": d["sources"], "installed": sorted(e["cli"] for e in d["clis"] if e["installed"])}
     return answers.get("profile") or "default", profile
 
 
@@ -376,13 +373,7 @@ def plan_text(plan):
     return "\n".join(lines)
 
 
-def launch_command(lead):
-    tmpl = LAUNCH.get(lead["host"])
-    if not tmpl:
-        return ""
-    if "{model}" in tmpl and not lead.get("model"):
-        return tmpl.replace(" --model {model}", "").replace(" -m {model}", "")
-    return tmpl.format(model=lead.get("model", ""))
+launch_command = ec.launch_command
 
 
 def write_atomic(path, cfg):

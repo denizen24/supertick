@@ -160,6 +160,8 @@ class Apply(unittest.TestCase):
         self.assertEqual(prof["roles"]["coder"], {"engine": "codex", "model": "gpt-5.6-sol"})
         self.assertEqual(prof["roles"]["unified-reviewer"]["engine"], "cursor")
         self.assertTrue(prof["fingerprint"].startswith("sha256:"))
+        self.assertEqual(prof["sources"], ["codex", "cursor-agent", "kimi"])
+        self.assertEqual(prof["installed"], ["codex", "cursor-agent", "kimi"])
         engine_config = HERE.parents[1] / "core" / "scripts" / "engine-config.py"
         run = subprocess.run([sys.executable, str(engine_config), "validate", "--config", str(self.env.config()), "--json"],
                              capture_output=True, text=True)
