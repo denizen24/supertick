@@ -1,5 +1,5 @@
 {
-  "_note": "Эталон 1.1.1 (121-567, F1): argv четырёх старых пресетов так, как их строит ведущий по engines.md «Пресеты» и «Пример: боевой cursor → argv». Токены: {model} {effort} {sandbox} {mode_flags} {session} разворачивает тест; {prompt} оставляет run-engine.sh. F3/F4 сверяют с этим файлом то, что печатает `engine-config.py argv`. Менять только осознанно, вместе с engines.md.",
+  "_note": "Эталон 1.1.1 (121-567, F1): argv четырёх старых пресетов так, как их строит ведущий по engines.md «Пресеты» и «Пример: боевой cursor → argv». Токены: {model} {effort} {sandbox} {mode_flags} {session} разворачивает тест; {prompt} оставляет run-engine.sh. F3/F4 сверяют с этим файлом то, что печатает `engine-config.py argv`. Менять только осознанно, вместе с engines.md. Аргумент codex — model_reasoning_effort={effort} без кавычек: в команде для оболочки кавычки вокруг значения оболочка снимает, codex получает голое значение.",
   "access": {
     "read":  {"sandbox": "read-only",       "mode_flags_cursor": ["--mode", "ask"]},
     "write": {"sandbox": "workspace-write", "mode_flags_cursor": ["--sandbox", "enabled", "-f"]}
@@ -18,7 +18,7 @@
       "binary": "codex",
       "defaults": {"model": "gpt-5.6-sol", "effort": "xhigh"},
       "access": ["read", "write"],
-      "cmd":    ["codex", "exec", "--skip-git-repo-check", "--sandbox", "{sandbox}", "-m", "{model}", "-c", "model_reasoning_effort=\"{effort}\"", "{prompt}"],
+      "cmd":    ["codex", "exec", "--skip-git-repo-check", "--sandbox", "{sandbox}", "-m", "{model}", "-c", "model_reasoning_effort={effort}", "{prompt}"],
       "resume": ["codex", "exec", "resume", "{session}", "{prompt}"],
       "session_from": "regex:session id: <uuid>"
     },

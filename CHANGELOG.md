@@ -2,12 +2,20 @@
 
 ## Unreleased — branch `universal` (121-567)
 
-- Repository layout, no change to the plugin: shared scripts live in `core/scripts/`, Claude Code
+- Repository layout, no change to the plugin behaviour: shared scripts live in `core/scripts/`, Claude Code
   texts, agents and manifest in `hosts/claude-code/`, and `tools/build-host.py claude-code` builds
   `plugins/supertick/` from them. The build is byte-identical to 1.1.1 (hashes and executable bits
   pinned in `tools/tests/snapshots/plugin-1.1.1.manifest`); CI fails if the committed plugin differs
   from a fresh build or if `core/` mentions Claude Code beyond the declared exceptions. See
   `docs/build.md`.
+
+- New `scripts/engine-config.py` (nothing calls it yet, the Claude Code texts are unchanged):
+  engine config as a tool instead of the lead reading JSON — `resolve` (step 0b), `argv`
+  (ready `run-engine.sh` command for a role), `validate`, `host`. Config search `$SUPERTICK_CONFIG` →
+  `~/.config/supertick/config.json` → the 1.1.x file, merged by key (earlier wins); profiles overlay
+  `roles`; `fallback` is `host | fail` (`claude` is a synonym). On the 1.1.x configs the resolution
+  equals the hand-written step 0b tables. One deliberate refinement: `second-reviewer` is switched
+  off only when engine **and model** match the reviewer (D7); 1.1.1 compared engines only.
 
 ## 1.1.1 — 2026-10-28
 

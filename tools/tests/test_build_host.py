@@ -185,9 +185,10 @@ class CoreIsHostNeutral(unittest.TestCase):
         stale = {k: v for k, v in allowed.items() if hits.get(k) != v}
         self.assertEqual(stale, {}, "исключение в core-neutrality.json больше не совпадает с файлом: снизить счётчик или убрать")
 
-    def test_the_two_hard_patterns_have_no_exceptions_at_all(self):
-        hard = [e for e in NEUTRALITY["exceptions"] if e["pattern"] in ("claude-env", "claude-home")]
-        self.assertEqual(hard, [], "CLAUDE_*/CLAUDECODE и ~/.claude в core/ не допускаются вовсе")
+    def test_the_two_hard_patterns_are_excused_only_for_engine_config(self):
+        hard = [e["path"] for e in NEUTRALITY["exceptions"] if e["pattern"] in ("claude-env", "claude-home")]
+        self.assertEqual(set(hard), {"core/scripts/engine-config.py"},
+                         "CLAUDE_*/CLAUDECODE и ~/.claude допустимы только в engine-config.py (D18, D27)")
 
     def test_every_exception_has_a_reason_and_points_at_a_real_file(self):
         for e in NEUTRALITY["exceptions"]:

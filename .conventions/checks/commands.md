@@ -12,7 +12,7 @@
 сборки, руками не правится (`docs/build.md`). Пути в таблицах ниже — в собранном плагине.
 
 ```bash
-# Plugin build matches core/ and hosts/ — «совпадает, файлов 34»
+# Plugin build matches core/ and hosts/ — «совпадает, файлов 35»
 python3 tools/build-host.py claude-code --check
 
 # Script tests (scripts/tests) — Ran 50 tests, OK; этот каталог не пополняется (исходник — core/scripts/tests)
