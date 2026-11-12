@@ -64,6 +64,17 @@
   snapshots). `supervisor-wait.sh` runs in the background where the host wakes the lead, or in the
   foreground with `--max` below one shell call's limit where it does not.
 
+- Shared lead protocol (P2) for hosts without messages between agents: `hosts/shared/LEAD.md` (545 lines,
+  no host tool names) and role briefs `core/roles/*.md` (12 roles). The lead runs the loop: one mechanism
+  for every role — card (`run-state.py new`), prompt file, `engine-config.py argv` (engine via
+  `run-engine.sh`, or exit 3 for the host's own executor), wait with `supervisor-wait.sh --mode shared`
+  (background on L2, foreground with `--max` on L1), take the report and decide by its first line
+  (`READY FOR REVIEW`, `VERDICT: … — APPROVED | CHANGES REQUESTED`, `COMMITTED` + `COMMITS:`,
+  `ACCEPT: … — PASS | FAIL`). The fix after review goes to the same executor by resume. Host differences
+  live in `hosts/<host>/primitives.md` (H1, H4). Not part of the Claude Code build.
+  `mock-engine.py` gets `SUPERTICK_MOCK_ACT`: a scenario command whose stdout becomes the reply, so a
+  test can play coder, reviewer and acceptance without a model.
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and

@@ -6,6 +6,8 @@
 |---|---|
 | общие скрипты и их тесты | `core/scripts/` (`core/scripts/tests/`) |
 | навыки, агенты, манифест плагина, README для Claude Code | `hosts/claude-code/` |
+| общий протокол ведущего для сред без сообщений между агентами (Kimi, Codex, OpenCode) | `hosts/shared/LEAD.md` (≤600 строк, без имён инструментов среды) |
+| брифы ролей для общего протокола | `core/roles/*.md` |
 | что и куда собирается | `hosts/<хост>/build.json` |
 | генератор | `tools/build-host.py` |
 | результат для Claude Code (лежит в git для маркетплейса) | `plugins/supertick/` — руками не правится |

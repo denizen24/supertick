@@ -15,10 +15,18 @@
 
 Сессия «помнит»: продолжение (`--session`) получает номер хода и первую строку первого задания.
 Состояние — в $SUPERTICK_MOCK_STATE (по умолчанию <tmp>/supertick-mock). Файлов проекта мок не меняет.
+
+Сценарий (121-567, P2): если задана SUPERTICK_MOCK_ACT, мок запускает эту команду (разбор как в shell,
+без shell) в текущем каталоге, а её stdout становится ответом. Команде передаются MOCK_PROMPT (текст
+задания), MOCK_ACCESS (read | write), MOCK_SESSION и MOCK_TURN. Так тест протокола изображает
+исполнителя, который правит файлы, коммитит и пишет вердикт, без настоящей модели. Ненулевой код
+команды — провал вызова с тем же кодом.
 """
 import argparse
 import json
 import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -59,6 +67,15 @@ def main(argv):
     reply = f"mock turn {state['turns']} ({access}, {args.model}): {first_line[:120]}"
     if state["turns"] > 1:
         reply += f"\nremembered: {state['first']}"
+    act = os.environ.get("SUPERTICK_MOCK_ACT")
+    if act:
+        env = dict(os.environ, MOCK_PROMPT=args.prompt, MOCK_ACCESS=access, MOCK_SESSION=session,
+                   MOCK_TURN=str(state["turns"]))
+        done = subprocess.run(shlex.split(act), capture_output=True, text=True, env=env)
+        if done.returncode != 0:
+            print(done.stderr or f"mock-engine: сценарий вернул {done.returncode}", file=sys.stderr)
+            return done.returncode
+        reply = done.stdout.rstrip("\n")
     out = {"type": "result", "subtype": "success", "is_error": args.mode == "is_error", "result": reply}
     if args.mode != "no-session":
         out["session_id"] = session
