@@ -14,6 +14,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Plugin build matches core/ and hosts/
+        run: |
+          python3 tools/build-host.py claude-code --check
+
       - name: Script tests (scripts/tests)
         run: |
           cd plugins/supertick && python3 -m unittest discover -s scripts/tests -v

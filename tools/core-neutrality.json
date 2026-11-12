@@ -1,0 +1,21 @@
+{
+  "_note": "Нейтральность core/ (121-567, F2): в общих файлах нет переменных Claude Code, ~/.claude, каталога .claude/, имён его инструментов и типов агентов. Исключения — явные и с ТОЧНЫМ числом строк на файл и шаблон: убрал строку — счётчик нужно снизить, добавил — тест упадёт. Сейчас все исключения — комментарии, докстринги и фикстуры 1.1.1: переписывать их до первой осознанной правки нельзя (сборка равна 1.1.1 побайтно). В P1/P2 тексты переписываются нейтрально, и счётчики идут к нулю.",
+  "patterns": {
+    "claude-env":   "CLAUDE(_|CODE)",
+    "claude-home":  "~/\\.claude|\\$HOME/\\.claude",
+    "claude-dir":   "\\.claude/|\"\\.claude\"",
+    "tool-names":   "\\b(SendMessage|TaskCreate|TaskUpdate|TaskList|TaskGet|ListAgents|ToolSearch|AskUserQuestion|TeamCreate|ExitPlanMode|EnterPlanMode|run_in_background)\\b|mcp__|\\bAgent\\(|\\bTask\\(",
+    "agent-types":  "\\b(Explore|general-purpose)\\b"
+  },
+  "exceptions": [
+    {"path": "core/scripts/engine-sessions.py", "pattern": "claude-dir", "lines": 1, "why": "docstring: путь ledger в примере"},
+    {"path": "core/scripts/run-engine.sh", "pattern": "claude-dir", "lines": 3, "why": "шапка-справка: примеры --run-dir .claude/teams/<team>"},
+    {"path": "core/scripts/run-engine.sh", "pattern": "tool-names", "lines": 1, "why": "шапка-справка: run_in_background у вызова ожидания"},
+    {"path": "core/scripts/supervisor-tick.py", "pattern": "claude-dir", "lines": 1, "why": "docstring: каталог прогона .claude/teams/<team>/"},
+    {"path": "core/scripts/supervisor-tick.py", "pattern": "tool-names", "lines": 2, "why": "docstring и комментарий правила почты: SendMessage вернулся queued (правила почты в режиме общего протокола выключены, P1)"},
+    {"path": "core/scripts/supervisor-wait.sh", "pattern": "tool-names", "lines": 1, "why": "шапка: запуск ведущим в фоне (run_in_background)"},
+    {"path": "core/scripts/team-mail.sh", "pattern": "tool-names", "lines": 1, "why": "шапка: письмо-копия того, что ушло через SendMessage"},
+    {"path": "core/scripts/team-wait.sh", "pattern": "tool-names", "lines": 1, "why": "шапка: история про SendMessage, вернувшийся queued"},
+    {"path": "core/scripts/tests/test_supervisor_tick.py", "pattern": "claude-dir", "lines": 2, "why": "фикстура каталога прогона 1.1.1 (.claude/teams/feature-x)"}
+  ]
+}

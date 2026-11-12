@@ -7,8 +7,15 @@
 
 Тела шагов по порядку, каждый — отдельный шаг (имя шага в комментарии):
 
+Правка плагина идёт в исходниках: скрипты — `core/scripts/`, тексты, агенты и манифест плагина —
+`hosts/claude-code/`; затем `python3 tools/build-host.py claude-code`. `plugins/supertick/` — результат
+сборки, руками не правится (`docs/build.md`). Пути в таблицах ниже — в собранном плагине.
+
 ```bash
-# Script tests (scripts/tests) — Ran 50 tests, OK; этот каталог не пополняется
+# Plugin build matches core/ and hosts/ — «совпадает, файлов 34»
+python3 tools/build-host.py claude-code --check
+
+# Script tests (scripts/tests) — Ran 50 tests, OK; этот каталог не пополняется (исходник — core/scripts/tests)
 cd plugins/supertick && python3 -m unittest discover -s scripts/tests -v
 
 # Tool tests (tools/tests) — OK; новые тесты кладутся сюда

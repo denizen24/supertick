@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — branch `universal` (121-567)
+
+- Repository layout, no change to the plugin: shared scripts live in `core/scripts/`, Claude Code
+  texts, agents and manifest in `hosts/claude-code/`, and `tools/build-host.py claude-code` builds
+  `plugins/supertick/` from them. The build is byte-identical to 1.1.1 (hashes and executable bits
+  pinned in `tools/tests/snapshots/plugin-1.1.1.manifest`); CI fails if the committed plugin differs
+  from a fresh build or if `core/` mentions Claude Code beyond the declared exceptions. See
+  `docs/build.md`.
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).
