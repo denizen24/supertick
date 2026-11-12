@@ -3,3 +3,6 @@
 # Пока файл пуст, сборка равна 1.1.1 побайтно. Путь отсюда, который на деле не расходится, — ошибка:
 # тест требует убрать устаревшее исключение.
 scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host); в CHANGELOG
+scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; в CHANGELOG
+scripts/mock-engine.py  новый скрипт F4: мок-движок (ok|fail|hang|no-session|is_error); в CHANGELOG
+engines/kimi-read.md  новый файл F4: профиль Kimi только на чтение для --agent-file; в CHANGELOG

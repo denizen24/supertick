@@ -17,6 +17,16 @@
   equals the hand-written step 0b tables. One deliberate refinement: `second-reviewer` is switched
   off only when engine **and model** match the reviewer (D7); 1.1.1 compared engines only.
 
+- Engine presets (F4), all checked by live calls on 12.11.2026 (reply, resume remembers a word, read
+  mode cannot write a file): `kimi` rewritten for Kimi Code CLI 2.x (`--output-format stream-json`,
+  session from `session.resume_hint`, resume `-S`; read mode is `--agent-file engines/kimi-read.md`, which
+  Kimi does not accept together with `-S` — the profile is restored with the session); new `claude`
+  (child Claude Code without skills, commands, MCP and user settings, so it cannot start supertick
+  again; read `--tools Read,Grep,Glob`, write `acceptEdits` with Bash); new `mock` with
+  `scripts/mock-engine.py`. `run-engine.sh` takes the reply from the last assistant line when the JSON
+  has no `result`. The 1.1.1 `kimi` argv is not kept (the old CLI is retired). The Claude Code texts
+  still describe the 1.1.1 presets until the lead calls `engine-config.py argv` (P2/H1).
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).

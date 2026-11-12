@@ -34,7 +34,9 @@ import sys
 import uuid
 from pathlib import Path
 
-LAUNCHER = Path(__file__).resolve().parent / "run-engine.sh"
+SCRIPTS_DIR = Path(__file__).resolve().parent
+LAUNCHER = SCRIPTS_DIR / "run-engine.sh"
+ENGINES_DIR = SCRIPTS_DIR.parent / "engines"      # профили движков, которые лежат в наборе плагина
 LEGACY_CONFIG = "~/.claude/agent-teams.json"      # D18: путь 1.1.x читается как раньше
 HOST_MARKER_ENV = "CLAUDECODE"                    # D27: среда Claude Code узнаётся по переменной
 XDG_CONFIG = "~/.config/supertick/config.json"
@@ -48,7 +50,10 @@ HOSTS = {
     "codex":       {"level": "L1", "native": "codex", "subagents": False, "engine": "codex"},
 }
 
-# Пресеты 1.1.1 (engines.md «Пресеты»). Шаблоны — списки аргументов; {prompt} раскрывает run-engine.sh.
+# Пресеты. Шаблоны — списки аргументов; {prompt} раскрывает run-engine.sh, {engines} и {scripts} —
+# этот скрипт (каталоги набора). cursor, codex, grok — как в 1.1.1 (engines.md «Пресеты»);
+# kimi переписан под Kimi Code CLI 2.x, claude и mock — новые (F4). Все новые проверены живыми вызовами
+# 12.11.2026: ответ, продолжение помнит слово, режим чтения не пишет файлы.
 PRESETS = {
     "cursor": {
         "binary": "cursor-agent", "model": "cursor-grok-4.6-xhigh", "effort": "",
@@ -66,11 +71,33 @@ PRESETS = {
         "resume": ["codex", "exec", "resume", "{session}", "{prompt}"],
         "sandbox": True, "read_runs_commands": True,
     },
-    "kimi": {   # формат 1.1.1; под Kimi Code CLI 2.x пресет перепишет F4
+    "kimi": {   # Kimi Code CLI 2.x: JSONL, ответ — строки assistant, сессия — строка session.resume_hint
         "binary": "kimi", "model": "kimi-code/k3", "effort": "",
-        "cmd": ["kimi", "-m", "{model}", "-p", "{prompt}"],
-        "resume": ["kimi", "-r", "{session}", "-p", "{prompt}"],
-        "write": False, "read_runs_commands": True,
+        "cmd": ["kimi", "-m", "{model}", "--output-format", "stream-json", "{mode_flags}", "-p", "{prompt}"],
+        # --agent-file с -S не сочетается: профиль привязан к сессии и при продолжении восстанавливается сам
+        "resume": ["kimi", "-S", "{session}", "-m", "{model}", "--output-format", "stream-json", "-p", "{prompt}"],
+        "mode_flags": {"read": "--agent-file {engines}/kimi-read.md", "write": ""},
+        "write": True,                 # запись — режим по умолчанию в -p
+        "read_runs_commands": False,   # профиль чтения без shell: роли с командами берут запись
+    },
+    "claude": {   # дочерний Claude Code без навыков, команд, MCP и пользовательских настроек (нет рекурсии)
+        "binary": "claude", "model": "sonnet", "effort": "",
+        "cmd": ["env", "-u", HOST_MARKER_ENV, "claude", "-p", "--output-format", "json", "--model", "{model}",
+                "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "project,local",
+                "{mode_flags}", "--", "{prompt}"],
+        "resume": ["env", "-u", HOST_MARKER_ENV, "claude", "-p", "--output-format", "json", "--model", "{model}",
+                   "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "project,local",
+                   "{mode_flags}", "--resume", "{session}", "--", "{prompt}"],
+        "mode_flags": {"read": "--tools Read,Grep,Glob",
+                       "write": "--permission-mode acceptEdits --allowedTools Bash,Edit,Write,Read,Grep,Glob"},
+        "read_runs_commands": False,
+    },
+    "mock": {   # мок-движок набора: формат как у claude, режим из SUPERTICK_MOCK_MODE (ok|fail|hang|no-session|is_error)
+        "binary": "mock-engine.py", "model": "mock-1", "effort": "", "always_available": True,
+        "cmd": ["{scripts}/mock-engine.py", "--model", "{model}", "{mode_flags}", "-p", "{prompt}"],
+        "resume": ["{scripts}/mock-engine.py", "--model", "{model}", "{mode_flags}", "--session", "{session}", "-p", "{prompt}"],
+        "mode_flags": {"read": "--read-only", "write": ""},
+        "write": True, "read_runs_commands": True,
     },
     "grok": {
         "binary": "grok", "model": "grok-4.6", "effort": "high",
@@ -223,10 +250,11 @@ def engine_def(cfg, name):
 
 
 def write_supported(eng):
-    if eng.get("write") is False and not eng.get("mode_flags"):
-        return False
-    if eng.get("mode_flags"):
-        return bool(eng["mode_flags"].get("write"))
+    """Есть ли у движка режим записи: флаги записи из конфига, явный признак пресета или {sandbox}."""
+    if (eng.get("mode_flags") or {}).get("write"):
+        return True
+    if eng.get("write") is not None:
+        return bool(eng["write"])
     if eng.get("sandbox"):
         return True
     text = " ".join(eng.get("cmd", []) + eng.get("resume", []))
@@ -352,7 +380,10 @@ def resolve(cfg, host, available, engines_off=False, profile=None, load_warnings
         return engine is None or (host == "claude-code" and engine == "claude")
 
     def usable(engine):
-        return is_native(engine) or (engine_def(cfg, engine) is not None and binary_of(cfg, engine, host) in available)
+        if is_native(engine):
+            return True
+        eng = engine_def(cfg, engine)
+        return eng is not None and (bool(eng.get("always_available")) or binary_of(cfg, engine, host) in available)
 
     def detail_of(engine, spec):
         if is_native(engine):
@@ -451,11 +482,13 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
     access = call_access(eng, role, role_access(role, spec)[0])
     session = resume or (str(uuid.uuid4()) if eng.get("caller_session") else "")
     values = {"{model}": model_of(cfg, spec, eng), "{effort}": effort_of(spec, eng),
-              "{sandbox}": SANDBOX[access], "{session}": session}
+              "{sandbox}": SANDBOX[access], "{session}": session,
+              "{engines}": str(ENGINES_DIR), "{scripts}": str(SCRIPTS_DIR)}
     argv = []
     for tok in (eng["resume"] if resume else eng["cmd"]):
-        if tok == "{mode_flags}":
-            argv += shlex.split((eng.get("mode_flags") or {}).get(access, ""))
+        if tok == "{mode_flags}":   # режется по пробелам ДО подстановки путей: путь с пробелом остаётся одним аргументом
+            argv += [f.replace("{engines}", str(ENGINES_DIR)).replace("{scripts}", str(SCRIPTS_DIR))
+                     for f in shlex.split((eng.get("mode_flags") or {}).get(access, ""))]
             continue
         for k, v in values.items():
             if k in tok:

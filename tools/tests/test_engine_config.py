@@ -247,24 +247,28 @@ class Rule3Access(unittest.TestCase):
 
 
 class Rule4WriteNeedsWriteMode(unittest.TestCase):
+    # движок без режима записи: свой, из конфига, без {sandbox} и mode_flags.write
+    RO = {"engines": {"ro": {"cmd": "ro-cli -p {prompt}"}}}
+
     def test_a_writing_role_on_an_engine_without_write_mode_is_an_error_not_a_silent_swap(self):
-        cfg = {"roles": {"coder": "kimi"}}
+        cfg = dict(self.RO, roles={"coder": "ro"})
         errors, _ = ec.validate(cfg)
         self.assertEqual([(e["code"], e["path"]) for e in errors], [("no_write_mode", "roles.coder.engine")])
-        res = resolved(cfg)
-        self.assertEqual((res["stop"], res["reason"]), (True, "no_write_mode:coder:kimi"))
+        res = resolved(cfg, avail=ALL_BINS | {"ro-cli"})
+        self.assertEqual((res["stop"], res["reason"]), (True, "no_write_mode:coder:ro"))
 
     def test_narrowing_the_role_to_read_makes_it_legal(self):
-        cfg = {"roles": {"coder": {"engine": "kimi", "access": "read"}}}
+        cfg = dict(self.RO, roles={"coder": {"engine": "ro", "access": "read"}})
         self.assertEqual(ec.validate(cfg)[0], [])
-        self.assertEqual(resolved(cfg)["table"]["coder"], "kimi")
+        self.assertEqual(resolved(cfg, avail={"ro-cli"})["table"]["coder"], "ro")
 
     def test_a_config_may_add_write_mode_to_an_engine_by_mode_flags(self):
-        cfg = {"roles": {"coder": "kimi"}, "engines": {"kimi": {"mode_flags": {"read": "--plan", "write": "--yolo"}}}}
+        cfg = {"roles": {"coder": "ro"}, "engines": {"ro": {"cmd": "ro-cli {mode_flags} -p {prompt}",
+                                                           "mode_flags": {"read": "--plan", "write": "--yolo"}}}}
         self.assertEqual(ec.validate(cfg)[0], [])
 
     def test_engines_with_a_write_mode_accept_writing_roles(self):
-        for engine in ("cursor", "codex", "grok"):
+        for engine in ("cursor", "codex", "grok", "kimi", "claude", "mock"):
             self.assertEqual(ec.validate({"roles": {"coder": engine}})[0], [], engine)
 
 
@@ -349,8 +353,12 @@ class Argv(unittest.TestCase):
         built = ec.build_argv(cfg, "claude-code", role, None, "/r", "/p.md", resume=session or None, available=ALL_BINS)
         return built
 
-    def test_the_four_old_presets_give_exactly_the_golden_argv(self):
+    def test_old_presets_except_kimi_give_exactly_the_golden_argv(self):
+        # kimi переписан под Kimi Code CLI 2.x (F4, ТЗ п. 4.3): его argv 1.1.1 не сохраняется
         for preset, spec in GOLDEN["presets"].items():
+            if preset == "kimi":
+                self.assertNotEqual(ec.PRESETS["kimi"]["cmd"], spec["cmd"])
+                continue
             for access in spec["access"]:
                 for which in ("cmd", "resume"):
                     with self.subTest(preset=preset, access=access, which=which):

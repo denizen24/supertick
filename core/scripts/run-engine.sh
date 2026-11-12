@@ -4,7 +4,7 @@
 # Launch (returns at once; the caller never waits on this command):
 #
 #   run-engine.sh --role <name> --run-dir .claude/teams/<team> --prompt <file> \
-#       [--label <NNN|tag>] [--engine cursor|codex|kimi|grok] [--task <id>] \
+#       [--label <NNN|tag>] [--engine cursor|codex|kimi|grok|claude|mock] [--task <id>] \
 #       [--report <name.md>] [--session <id>] [--session-regex <re>] [--timeout <sec>] \
 #       -- <engine argv, with {prompt} / {prompt_file} placeholders>
 #
@@ -114,6 +114,18 @@ for line in reversed(text.splitlines()):
         result = obj.get("result")
         is_error = bool(obj.get("is_error"))
         break
+if result is None:   # JSONL без поля result (kimi 2.x --output-format stream-json): ответ — последняя реплика assistant
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and obj.get("role") == "assistant" and isinstance(obj.get("content"), str) and obj["content"].strip():
+            result = obj["content"]
+            break
 if not rx:
     rx = {"codex": r"session id:\s*([0-9a-fA-F-]{36})",
           "kimi": r"kimi -r (session_[0-9a-f-]+)"}.get(engine, "")
