@@ -126,6 +126,21 @@ if result is None:   # JSONL без поля result (kimi 2.x --output-format st
         if isinstance(obj, dict) and obj.get("role") == "assistant" and isinstance(obj.get("content"), str) and obj["content"].strip():
             result = obj["content"]
             break
+        # codex exec --json: ответ — последняя agent_message, сессия — thread_id из thread.started
+        item = obj.get("item") if isinstance(obj, dict) else None
+        if isinstance(item, dict) and obj.get("type") == "item.completed" and item.get("type") == "agent_message" \
+                and isinstance(item.get("text"), str) and item["text"].strip():
+            result = item["text"]
+            break
+    if not session:
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("{") and '"thread.started"' in line:
+                try:
+                    session = json.loads(line).get("thread_id") or ""
+                except ValueError:
+                    pass
+                break
 if not rx:
     rx = {"codex": r"session id:\s*([0-9a-fA-F-]{36})",
           "kimi": r"kimi -r (session_[0-9a-f-]+)"}.get(engine, "")

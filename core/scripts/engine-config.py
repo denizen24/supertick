@@ -30,6 +30,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -47,7 +48,9 @@ HOSTS = {
     "claude-code": {"level": "L3", "native": "claude", "subagents": True, "engine": "claude"},
     "kimi":        {"level": "L2", "native": "native", "subagents": True, "engine": "kimi"},
     "opencode":    {"level": "L1", "native": "opencode", "subagents": False, "engine": "opencode"},
-    "codex":       {"level": "L1", "native": "codex", "subagents": False, "engine": "codex"},
+    # Codex (спайк S0-CX 12.11.2026): родные субагенты с продолжением есть (spawn_agent, send_input,
+    # wait_agent до часа), но ведущего никто не будит: ожидание только внутри хода — уровень L1
+    "codex":       {"level": "L1", "native": "native", "subagents": True, "engine": "codex"},
 }
 
 # Пресеты. Шаблоны — списки аргументов; {prompt} раскрывает run-engine.sh, {engines} и {scripts} —
@@ -64,12 +67,16 @@ PRESETS = {
         "read_runs_commands": False,   # `--mode ask` отклоняет shell (22.10.2026): роли с командами берут запись
         "path_prefix": True,           # бинарь в ~/.local/bin
     },
-    "codex": {
+    "codex": {   # спайк S0-CX: -- перед промптом (бриф начинается с ---), --json, -m и режим на продолжении
         "binary": "codex", "model": "gpt-5.6-sol", "effort": "xhigh",
         "cmd": ["codex", "exec", "--skip-git-repo-check", "--sandbox", "{sandbox}", "-m", "{model}",
-                "-c", "model_reasoning_effort={effort}", "{prompt}"],
-        "resume": ["codex", "exec", "resume", "{session}", "{prompt}"],
+                "-c", "model_reasoning_effort={effort}", "{git_flags}", "--json", "--", "{prompt}"],
+        # resume без -m берёт модель по умолчанию, а не модель сессии; -c sandbox_mode меняет режим явно
+        "resume": ["codex", "exec", "resume", "--skip-git-repo-check", "-m", "{model}",
+                   "-c", "model_reasoning_effort={effort}", "-c", "sandbox_mode={sandbox}", "{git_flags}",
+                   "--json", "{session}", "--", "{prompt}"],
         "sandbox": True, "read_runs_commands": True,
+        "git_flags": "-c sandbox_workspace_write.writable_roots={git_roots}",   # только ролям, что коммитят
     },
     "kimi": {   # Kimi Code CLI 2.x: JSONL, ответ — строки assistant, сессия — строка session.resume_hint
         "binary": "kimi", "model": "kimi-code/k3", "effort": "",
@@ -131,13 +138,13 @@ ROLES = {
     "architect-systems":    {"kind": "participant", "access": "read", "timeout": 1800},
     "unified-reviewer":     {"kind": "participant", "access": "read", "timeout": 1800},
     "second-reviewer":      {"kind": "participant", "access": "read", "timeout": 1800},
-    "coder":                {"kind": "participant", "access": "write", "timeout": 3600},
+    "coder":                {"kind": "participant", "access": "write", "commits": True, "timeout": 3600},
 }
 FOREIGN = {"research-challenger", "research-critic", "rollback-critic"}   # роли чужих плагинов
 RETIRED = {"security-reviewer", "logic-reviewer", "quality-reviewer"}     # снятые id: предупреждение и игнор
 FALLBACKS = {"host", "fail", "claude"}
 ROLE_KEYS = {"engine", "model", "effort", "sandbox", "access"}
-ENGINE_KEYS = {"model", "effort", "cmd", "resume", "mode_flags", "session", "result"}
+ENGINE_KEYS = {"model", "effort", "cmd", "resume", "mode_flags", "session", "result", "git_flags"}
 TOP_KEYS = {"enabled", "fallback", "active_profile", "profiles", "roles", "engines"}
 PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe"}
 
@@ -245,6 +252,8 @@ def engine_def(cfg, name):
             base[key] = split_template(over[key])
     if isinstance(over.get("mode_flags"), dict):
         base["mode_flags"] = over["mode_flags"]
+    if isinstance(over.get("git_flags"), str):
+        base["git_flags"] = over["git_flags"]
     base["name"] = name
     return base
 
@@ -273,6 +282,23 @@ def role_access(role, spec):
         else:
             access = spec["access"]
     return access, error
+
+
+def git_roots(cwd):
+    """Каталоги git проекта (общий и рабочего дерева), куда движку надо писать, чтобы коммитить; [] вне репозитория."""
+    roots = []
+    for flag in ("--absolute-git-dir", "--git-common-dir"):
+        try:
+            out = subprocess.run(["git", "-C", str(cwd), "rev-parse", flag], capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if out.returncode != 0 or not out.stdout.strip():
+            return []
+        path = Path(out.stdout.strip())
+        path = path if path.is_absolute() else Path(cwd, path)
+        if str(path.resolve()) not in roots:
+            roots.append(str(path.resolve()))
+    return roots
 
 
 def call_access(eng, role, access):
@@ -465,7 +491,7 @@ def engines_section(res):
 
 # ------------------------------------------------------------------ argv
 def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", timeout=None,
-               resume=None, profile=None, available=None, have_config=True):
+               resume=None, profile=None, available=None, have_config=True, cwd=None):
     h = HOSTS[host]
     res = resolve(cfg, host, available if available is not None else discover_available(cfg),
                   profile=profile, have_config=have_config)
@@ -489,6 +515,11 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
         if tok == "{mode_flags}":   # режется по пробелам ДО подстановки путей: путь с пробелом остаётся одним аргументом
             argv += [f.replace("{engines}", str(ENGINES_DIR)).replace("{scripts}", str(SCRIPTS_DIR))
                      for f in shlex.split((eng.get("mode_flags") or {}).get(access, ""))]
+            continue
+        if tok == "{git_flags}":    # запись в .git — только роли, что коммитят, и только если это репозиторий
+            roots = git_roots(cwd or os.getcwd()) if access == "write" and ROLES.get(role, {}).get("commits") else []
+            if roots and eng.get("git_flags"):
+                argv += [f.replace("{git_roots}", json.dumps(roots)) for f in shlex.split(eng["git_flags"])]
             continue
         for k, v in values.items():
             if k in tok:
@@ -628,7 +659,8 @@ def main(argv):
     p.add_argument("role"); p.add_argument("--host"); p.add_argument("--profile"); p.add_argument("--name")
     p.add_argument("--run-dir", required=True); p.add_argument("--prompt", required=True)
     p.add_argument("--task", default=""); p.add_argument("--report", default=""); p.add_argument("--timeout", type=int)
-    p.add_argument("--resume", nargs="?", const="auto"); p.add_argument("--available"); common(p)
+    p.add_argument("--resume", nargs="?", const="auto"); p.add_argument("--available")
+    p.add_argument("--cwd", help="корень проекта (по умолчанию текущий каталог): откуда брать каталоги git для ролей с коммитом"); common(p)
     p = sub.add_parser("validate"); common(p)
     args = top.parse_args(argv)
 
@@ -679,7 +711,7 @@ def main(argv):
                 resume = sess.read_text(encoding="utf-8").strip()
             built = build_argv(cfg, host, args.role, args.name, args.run_dir, args.prompt, task=args.task,
                                report=args.report, timeout=args.timeout, resume=resume, profile=args.profile,
-                               available=available, have_config=bool(used))
+                               available=available, have_config=bool(used), cwd=args.cwd)
             if built is None:
                 emit({"native": True, "role": args.role}, args.json, f"роль {args.role} исполняет родной исполнитель: команды нет")
                 return 3

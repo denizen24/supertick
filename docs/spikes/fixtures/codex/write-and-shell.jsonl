@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"01a1ce96-e853-7d22-9b94-0c3be8a3b409"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"file_change","changes":[{"path":"<workdir>/w1.txt","kind":"add"}],"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"file_change","changes":[{"path":"<workdir>/w1.txt","kind":"add"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'echo SHELL_OK'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'echo SHELL_OK'","aggregated_output":"SHELL_OK\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"SHELL_OK"}}
+{"type":"turn.completed","usage":{"input_tokens":27163,"cached_input_tokens":23552,"cache_write_input_tokens":0,"output_tokens":228,"reasoning_output_tokens":99}}

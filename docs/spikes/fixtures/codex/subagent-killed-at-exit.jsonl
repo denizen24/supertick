@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a1ce99-f599-7370-b1ae-c32080ba5103"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"01a1ce99-f599-7370-b1ae-c32080ba5103","receiver_thread_ids":[],"prompt":"run the shell command: sleep 20; echo SUB_DONE > sub.txt ; then reply DONE","agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"01a1ce99-f599-7370-b1ae-c32080ba5103","receiver_thread_ids":["01a1ce9a-0e88-72e1-836d-184065cb6a4a"],"prompt":"run the shell command: sleep 20; echo SUB_DONE > sub.txt ; then reply DONE","agents_states":{"01a1ce9a-0e88-72e1-836d-184065cb6a4a":{"status":"pending_init","message":null}},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"STARTED"}}
+{"type":"turn.completed","usage":{"input_tokens":45619,"cached_input_tokens":39424,"cache_write_input_tokens":0,"output_tokens":173,"reasoning_output_tokens":72}}

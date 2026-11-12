@@ -1,4 +1,4 @@
-"""Новые пресеты и мок-движок (121-567, F4): kimi под Kimi Code CLI 2.x, claude, mock.
+"""Новые пресеты и мок-движок (121-567, F4 и S0-CX): kimi под Kimi Code CLI 2.x, claude, mock, codex 0.167.
 
 - Разбор вывода Kimi 2.x — на фикстурах спайка `docs/spikes/fixtures/kimi/` через run-engine.sh
   (подставной бинарь `kimi` печатает фикстуру).
@@ -25,6 +25,7 @@ from test_scripts import executable, tmpdir
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 FIXTURES = ROOT / "docs" / "spikes" / "fixtures" / "kimi"
+CODEX_FIXTURES = ROOT / "docs" / "spikes" / "fixtures" / "codex"
 CORE = ROOT / "core" / "scripts"
 spec = importlib.util.spec_from_file_location("engine_config_f4", CORE / "engine-config.py")
 ec = importlib.util.module_from_spec(spec)
@@ -96,6 +97,59 @@ class KimiStreamJsonParsing(unittest.TestCase):
                 self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
 
 
+FIXTURE_CODEX = r'''#!/usr/bin/env python3
+# подставной codex: печатает образец спайка; у .txt — «--- stderr (exit 1):» и код выхода 1
+import os, sys
+text = open(os.environ["CODEX_FIXTURE"], encoding="utf-8").read()
+if "--- stderr (exit 1):" in text:
+    out, err = text.split("--- stderr (exit 1):", 1)
+    sys.stdout.write(out.replace("--- stdout:\n", "")); sys.stderr.write(err.lstrip("\n")); sys.exit(1)
+sys.stdout.write(text)
+if "error-model" in os.environ["CODEX_FIXTURE"]:
+    sys.exit(1)
+'''
+
+
+@unittest.skipUnless(shutil.which("setsid"), "нет setsid")
+class CodexJsonlParsing(unittest.TestCase):
+    """run-engine.sh достаёт ответ и сессию из `codex exec --json` (образцы спайка S0-CX)."""
+
+    def run_fixture(self, name):
+        root = tmpdir(self)
+        (root / "bin").mkdir()
+        executable(root / "bin" / "codex", FIXTURE_CODEX)
+        prompt = root / "p.md"
+        prompt.write_text("hi\n", encoding="utf-8")
+        env = {**os.environ, "HOME": str(root), "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "CODEX_FIXTURE": str(CODEX_FIXTURES / name)}
+        launched = subprocess.run(["bash", str(CORE / "run-engine.sh"), "--role", "r", "--run-dir", str(root / "run"),
+                                   "--prompt", str(prompt), "--engine", "codex", "--timeout", "10", "--", "codex", "exec", "{prompt}"],
+                                  capture_output=True, text=True, timeout=60, env=env)
+        return wait_done(self, launched)
+
+    def test_reply_and_thread_id_of_a_first_call(self):
+        fields, result = self.run_fixture("ok-first.jsonl")
+        self.assertEqual((fields["status"], fields["session"]), ("done", "01a1cea9-5683-75b1-a6ce-b6d18fc1bda2"))
+        self.assertEqual(result, "OK\n")
+
+    def test_resumed_call_keeps_the_thread_and_remembers(self):
+        fields, result = self.run_fixture("ok-resume.jsonl")
+        self.assertEqual((fields["session"], result), ("01a1ce96-47b5-7061-8de3-dfd21b49247c", "ARBUZ\n"))
+
+    def test_the_reply_is_the_last_agent_message_not_tool_events(self):
+        fields, result = self.run_fixture("write-and-shell.jsonl")
+        self.assertEqual(result, "SHELL_OK\n")
+        self.assertTrue(fields["session"])
+
+    def test_a_lead_probe_run_ends_with_its_last_message(self):
+        _, result = self.run_fixture("lead-probe-poll-sol.jsonl")
+        self.assertEqual(result, "ГОТОВО\n")
+
+    def test_a_failed_model_call_fails_with_the_exit_code(self):
+        fields, _ = self.run_fixture("error-model.jsonl")
+        self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
+        self.assertTrue(fields["session"], "thread.started есть и у провалившегося вызова")
+
+
 class NewPresetsArgv(unittest.TestCase):
     def argv(self, engine, role, resume=None, model=None, cfg_extra=None, host="kimi"):
         roles = {role: {"engine": engine, **({"model": model} if model else {})}}
@@ -144,6 +198,57 @@ class NewPresetsArgv(unittest.TestCase):
         built = ec.build_argv({"roles": {"unified-reviewer": "claude"}}, "kimi", "unified-reviewer", None, "/r", "/p.md",
                               available={"claude"})
         self.assertEqual(built["argv"][3], "claude")
+
+    def git_repo(self):
+        repo = tmpdir(self)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        return repo
+
+    def codex(self, role, resume=None, cwd=None, model="gpt-5.6-luna"):
+        cfg = {"roles": {role: {"engine": "codex", "model": model, "effort": "low"}}}
+        return ec.build_argv(cfg, "claude-code", role, None, "/run", "/p.md", resume=resume, available={"codex"}, cwd=cwd)
+
+    def test_codex_read_call_has_dashes_json_and_a_read_only_sandbox(self):
+        built = self.codex("unified-reviewer", cwd=self.git_repo())
+        self.assertEqual(built["argv"], ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-m", "gpt-5.6-luna",
+                                         "-c", "model_reasoning_effort=low", "--json", "--", "{prompt}"],
+                         "-- нужен: бриф начинается с ---, а codex читает его как ключ (проверено на 0.167.2)")
+
+    def test_codex_resume_repeats_the_model_effort_and_sandbox_because_resume_defaults_differ(self):
+        built = self.codex("unified-reviewer", resume="thread-1", cwd=self.git_repo())
+        self.assertEqual(built["argv"], ["codex", "exec", "resume", "--skip-git-repo-check", "-m", "gpt-5.6-luna",
+                                         "-c", "model_reasoning_effort=low", "-c", "sandbox_mode=read-only",
+                                         "--json", "thread-1", "--", "{prompt}"])
+
+    def test_codex_coder_gets_the_git_dirs_writable_and_only_the_coder(self):
+        repo = self.git_repo()
+        roots = json.dumps([str((repo / ".git").resolve())])
+        coder = self.codex("coder", cwd=repo)["argv"]
+        self.assertIn(f"sandbox_workspace_write.writable_roots={roots}", coder)
+        self.assertEqual(coder[coder.index("--sandbox") + 1], "workspace-write")
+        resumed = self.codex("coder", resume="t", cwd=repo)["argv"]
+        self.assertIn(f"sandbox_workspace_write.writable_roots={roots}", resumed)
+        self.assertIn("sandbox_mode=workspace-write", resumed)
+        for role in ("risk-tester", "ci-verifier"):   # пишут, но не коммитят
+            self.assertFalse([a for a in self.codex(role, cwd=repo)["argv"] if "writable_roots" in a], role)
+
+    def test_codex_coder_outside_a_repository_gets_no_git_flags(self):
+        self.assertFalse([a for a in self.codex("coder", cwd=tmpdir(self))["argv"] if "writable_roots" in a])
+
+    def test_codex_in_a_git_worktree_gets_both_the_worktree_and_the_common_git_dir(self):
+        main = self.git_repo()
+        subprocess.run(["git", "-C", str(main), "-c", "user.name=t", "-c", "user.email=t@l", "commit", "-q", "--allow-empty", "-m", "i"], check=True)
+        wt = tmpdir(self) / "wt"
+        subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", str(wt)], check=True)
+        arg = [a for a in self.codex("coder", cwd=wt)["argv"] if "writable_roots" in a][0]
+        got = json.loads(arg.split("=", 1)[1])
+        self.assertEqual(len(got), 2)
+        self.assertEqual(sorted(got), sorted([str((main / ".git").resolve()), str((main / ".git" / "worktrees" / "wt").resolve())]))
+
+    def test_codex_host_has_native_subagents_but_is_level_l1(self):
+        self.assertEqual((ec.HOSTS["codex"]["level"], ec.HOSTS["codex"]["subagents"], ec.HOSTS["codex"]["native"]), ("L1", True, "native"))
+        res = ec.resolve({"roles": {"spec-verifier": "cursor"}}, "codex", {"cursor-agent"})
+        self.assertNotIn("coder", res["table"], "у Codex есть родные субагенты: неназначенная роль идёт на них")
 
     def test_mock_is_always_available_and_lives_next_to_the_scripts(self):
         built = ec.build_argv({"roles": {"coder": "mock"}}, "kimi", "coder", None, "/r", "/p.md", available=set())
@@ -200,21 +305,23 @@ class MockEngineEndToEnd(unittest.TestCase):
 class LiveEngines(unittest.TestCase):
     """Настоящие CLI: ответ, продолжение помнит слово, чтение не пишет, дочерний Claude без навыков supertick."""
 
-    MODELS = {"kimi": "kimi-code/kimi-for-coding-highspeed", "claude": "haiku"}
+    MODELS = {"kimi": "kimi-code/kimi-for-coding-highspeed", "claude": "haiku", "codex": "gpt-5.6-luna"}
 
     def setUp(self):
         self.work = tmpdir(self)
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
+        for key, value in (("user.name", "probe"), ("user.email", "probe@local")):   # коммит кодера нужна идентичность
+            subprocess.run(["git", "-C", str(self.work), "config", key, value], check=True)
         (self.work / "README.md").write_text("x\n", encoding="utf-8")
 
     def call(self, engine, role, text, resume=None, name=None):
-        if not shutil.which({"kimi": "kimi", "claude": "claude"}[engine]) and engine == "claude":
-            self.skipTest("нет claude")
+        if not shutil.which({"kimi": "kimi", "claude": "claude", "codex": "codex"}[engine]) and engine != "kimi":
+            self.skipTest(f"нет {engine}")
         prompt = self.work / f"p-{time.monotonic_ns()}.md"
         prompt.write_text(text, encoding="utf-8")
         built = ec.build_argv({"roles": {role: {"engine": engine, "model": self.MODELS[engine]}}}, "kimi", role, name,
                               str(self.work / ".supertick" / "run"), str(prompt), resume=resume, timeout=300,
-                              available={"kimi", "claude"})
+                              available={"kimi", "claude", "codex"}, cwd=self.work)
         env = {**os.environ, "PATH": f"{Path.home() / '.kimi-code' / 'bin'}:{os.environ['PATH']}"}
         launched = subprocess.run(["bash", *built["launcher"], "--", *built["argv"]], capture_output=True, text=True,
                                   timeout=60, env=env, cwd=self.work)
@@ -234,6 +341,26 @@ class LiveEngines(unittest.TestCase):
 
     def test_kimi(self):
         self.check_engine("kimi")
+
+    def test_codex(self):
+        # бриф начинается с --- (так выглядят брифы ролей); effort задаёт роль в конфиге — luna поддерживает low
+        subprocess.run(["git", "-C", str(self.work), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(self.work), "commit", "-q", "-m", "init"], check=True)
+        first, _ = self.call("codex", "coder", "---\nrole: coder\n---\nRemember the code word ARBUZ. Run: echo b >> README.md && git add -A && "
+                             "git commit -q -m c1. Reply OK.", name="codex-w")
+        self.assertEqual(first["status"], "done", first)
+        self.assertEqual(first["session"].count("-"), 4, first)
+        self.assertEqual(subprocess.run(["git", "-C", str(self.work), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout.strip(), "2",
+                         "кодер Codex должен коммитить: .git записываемый")
+        again, reply = self.call("codex", "coder", "Run: echo c >> README.md && git add -A && git commit -q -m c2. Then reply with the code word I "
+                                 "asked you to remember, one word.", resume=first["session"], name="codex-w")
+        self.assertEqual(again["status"], "done", again)
+        self.assertIn("ARBUZ", reply.upper())
+        self.assertEqual(subprocess.run(["git", "-C", str(self.work), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout.strip(), "3",
+                         "продолжение тоже пишет в .git")
+        ro, _ = self.call("codex", "unified-reviewer", "---\nrole: reviewer\n---\nCreate file ro.txt with text X. Reply DONE or CANNOT.", name="codex-r")
+        self.assertEqual(ro["status"], "done", ro)
+        self.assertFalse((self.work / "ro.txt").exists(), "codex в режиме чтения создал файл")
 
     def test_claude(self):
         self.check_engine("claude")

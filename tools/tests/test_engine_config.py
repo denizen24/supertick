@@ -190,8 +190,9 @@ class Rule1NativeByDefault(unittest.TestCase):
                 self.assertNotIn("coder", resolved({"roles": {"spec-verifier": "cursor"}}, host=host)["table"])
 
     def test_a_host_without_subagents_runs_unassigned_roles_on_its_own_engine(self):
-        res = resolved({"roles": {"spec-verifier": "cursor"}}, host="codex")
-        self.assertEqual(res["table"]["coder"], "codex")
+        # opencode — предварительно, до спайка S0-OC: родных субагентов в таблице хостов пока нет
+        res = resolved({"roles": {"spec-verifier": "cursor"}}, host="opencode")
+        self.assertEqual(res["table"]["coder"], "opencode")
         self.assertEqual(res["table"]["spec-verifier"], "cursor")
         self.assertNotIn("browser-verifier", res["table"])
         self.assertNotIn("lead", res["table"])
@@ -353,11 +354,12 @@ class Argv(unittest.TestCase):
         built = ec.build_argv(cfg, "claude-code", role, None, "/r", "/p.md", resume=session or None, available=ALL_BINS)
         return built
 
-    def test_old_presets_except_kimi_give_exactly_the_golden_argv(self):
-        # kimi переписан под Kimi Code CLI 2.x (F4, ТЗ п. 4.3): его argv 1.1.1 не сохраняется
+    def test_old_presets_except_kimi_and_codex_give_exactly_the_golden_argv(self):
+        # kimi переписан под Kimi Code CLI 2.x (F4), codex исправлен по итогам спайка S0-CX (-- перед промптом,
+        # -m и режим на продолжении, --json): их argv 1.1.1 не сохраняется, новый — в test_engine_presets_f4.py
         for preset, spec in GOLDEN["presets"].items():
-            if preset == "kimi":
-                self.assertNotEqual(ec.PRESETS["kimi"]["cmd"], spec["cmd"])
+            if preset in ("kimi", "codex"):
+                self.assertNotEqual(ec.PRESETS[preset]["cmd"], spec["cmd"])
                 continue
             for access in spec["access"]:
                 for which in ("cmd", "resume"):

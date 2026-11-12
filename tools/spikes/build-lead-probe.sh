@@ -89,6 +89,30 @@ E
 tail -n +301 "$REF"
 } > skills/lead-probe/SKILL.md
 
+# PROBE_WAIT=poll — вариант для сред без пробуждения ведущего (Codex exec): ожидание внутри хода
+if [ "${PROBE_WAIT:-wake}" = "poll" ]; then
+python3 - <<'PY'
+import re
+p = "skills/lead-probe/SKILL.md"
+s = open(p, encoding="utf-8").read()
+a = s.index("4. **Запуск исполнителя.**")
+b = s.index("7. **Цикл задачи.**")
+new = """4. **Запуск исполнителя.** Исполнитель запускается командой
+   `scripts/mock-engine.sh <роль> <задача> <круг>` через shell-инструмент; команда идёт около 8 секунд.
+5. **Ожидание.** Дождись окончания команды В ЭТОМ ЖЕ ХОДЕ: если инструмент вернул идентификатор
+   сессии, а не результат, опрашивай её, пока команда не завершится. Ход не заканчивай, пока цикл
+   задачи не доведён до конца или не остановлен лимитом кругов. Метка — `task1-c1`, `task1-r1`,
+   `task1-a1` и так далее (первая буква роли и номер круга).
+6. **Запись результата.** После каждого вызова прочитай `out/<метка>.done` и допиши в конец раздела
+   `## Log` файла `run/state.md` строку `- <метка>: <содержимое файла .done>`.
+"""
+open(p, "w", encoding="utf-8").write(s[:a] + new + s[b:])
+PY
+fi
+# навык лежит и в skills/ (Kimi: --skills-dir), и в .agents/skills/ (Codex подхватывает из проекта)
+mkdir -p .agents/skills/lead-probe && cp skills/lead-probe/SKILL.md .agents/skills/lead-probe/SKILL.md
+echo '.agents/' >> .git/info/exclude   # не коммитим: проверка ждёт ровно три коммита
+
 cat > check.sh <<'E'
 #!/usr/bin/env bash
 # check.sh — проверки пробы по файлам, без оценки текста моделью

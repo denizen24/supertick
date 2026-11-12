@@ -27,6 +27,15 @@
   has no `result`. The 1.1.1 `kimi` argv is not kept (the old CLI is retired). The Claude Code texts
   still describe the 1.1.1 presets until the lead calls `engine-config.py argv` (P2/H1).
 
+- Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
+  `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
+  `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and
+  `-c sandbox_mode` repeated on `resume` (it silently used the default model otherwise), `--skip-git-repo-check`
+  on `resume`. A role that commits (`coder`) gets the git dirs of the project as writable roots
+  (`{git_flags}`; `workspace-write` mounts `.git` read-only) — note this also opens `.git/hooks`. Codex is
+  host level L1 with native sub-agents: no wake-up of the lead, waiting only inside a turn. The 1.1.1 `codex`
+  argv is not kept. The lead probe stand gained `PROBE_WAIT=poll` for hosts without wake-up.
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).
