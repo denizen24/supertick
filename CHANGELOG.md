@@ -53,6 +53,17 @@
   fingerprint, and the step 0 decision of `engine-config.py host`. Exit code 1 on validate errors or a
   broken config file.
 
+- `supervisor-tick.py --mode shared` and `supervisor-wait.sh --mode shared` (P1) for hosts without
+  messages between agents, where the lead runs the loop and executors do not keep their own cards.
+  Mail rules (copies, letters to the lead, undelivered letters, DONE without REVIEW) and silence rules
+  (first minute, checkpoint, silent too long, busy) are off. New: `engine_result_ready` (P1, a finished
+  engine is the lead's next step, not a 15-minute wait), `executor_overdue` (P0, past `timeoutSec` of the
+  card, one hour by default, with no live engine call of that name), `executor_report_ready` (P1, the
+  card's `report` file is newer than the start), `engine_not_started` (P1). Dead, failed and unread
+  engines and acceptance reports work as before. Without the flag the output is byte-identical (F1
+  snapshots). `supervisor-wait.sh` runs in the background where the host wakes the lead, or in the
+  foreground with `--max` below one shell call's limit where it does not.
+
 - Codex CLI spike S0-CX (12.11.2026, `docs/spikes/s0-hosts.md`) and the `codex` preset fixed after it:
   `--` before the prompt (a brief starting with `---` was read as an option and the call died with code 2),
   `--json` (reply = last `agent_message`, session = `thread_id`; `run-engine.sh` parses it), `-m`, effort and

@@ -9,3 +9,5 @@ engines/kimi-read.md  новый файл F4: профиль Kimi только �
 scripts/supertick-setup.py  новый скрипт F5 (supertick-setup.py: discover, диалог, plan/apply, launch); в CHANGELOG
 references/models-catalog.json  новый файл F5: запасной список моделей для диалога подключения; в CHANGELOG
 scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: версия, среда, конфиг, CLI, профиль, шаг 0); в CHANGELOG
+scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); в CHANGELOG
+scripts/supervisor-wait.sh  P1: --mode передаётся тику; в шапке — ожидание в фоне и на переднем плане; в CHANGELOG

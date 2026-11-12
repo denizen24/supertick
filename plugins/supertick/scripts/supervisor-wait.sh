@@ -2,6 +2,7 @@
 # supervisor-wait.sh — сон ведущего: крутит тики, пока не появится действие нужного приоритета.
 #
 #   supervisor-wait.sh <run-dir> [--wake-on P0|P1|P2|P3] [--interval <сек>] [--max <сек>] [--root <корень>]
+#                      [--mode claude|shared]
 #
 # Запускается ведущим в фоне (run_in_background: true) после спавна команды и после
 # каждого обработанного пробуждения. Завершается — и тем самым будит ведущего —
@@ -11,6 +12,11 @@
 # прочитать, полный снимок лежит в state/supervisor.json.
 #
 # Ожидание стоит ноль токенов: между тиками спит sleep, а не модель.
+#
+# Режим общего протокола (--mode shared, 121-567 P1) передаётся тику как есть. Там, где среда сама
+# будит ведущего по концу фоновой задачи (Kimi), скрипт идёт в фоне, как здесь. Где не будит (Codex),
+# ведущий зовёт его на переднем плане с --max меньше лимита одного вызова shell, вызов за вызовом:
+# выход по --max печатает строку WAKE и действия тика — это плановая проверка, а не ошибка.
 set -u
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 run="${1:-}"; shift || true
@@ -18,18 +24,21 @@ run="${1:-}"; shift || true
 # Абсолютный путь сразу: фоновый Bash ведущего может крутиться не в том каталоге,
 # где его запустили, и относительный путь «пропадал» на первом же тике (121-374).
 run=$(cd "$run" && pwd)
-wake="P1"; interval=20; max=3600; root=""
+wake="P1"; interval=20; max=3600; root=""; mode=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --wake-on) wake="$2"; shift 2 ;;
     --interval) interval="$2"; shift 2 ;;
     --max) max="$2"; shift 2 ;;
     --root) root="$2"; shift 2 ;;
+    --mode) mode="$2"; shift 2 ;;
     *) echo "supervisor-wait: неизвестный аргумент $1" >&2; exit 2 ;;
   esac
 done
 case "$wake" in P0|P1|P2|P3) ;; *) echo "supervisor-wait: --wake-on ждёт P0..P3" >&2; exit 2 ;; esac
 rootarg=(); [ -n "$root" ] && rootarg=(--root "$(cd "$root" && pwd)")
+case "$mode" in ""|claude|shared) ;; *) echo "supervisor-wait: --mode ждёт claude или shared" >&2; exit 2 ;; esac
+[ -n "$mode" ] && rootarg+=(--mode "$mode")
 started=$(date +%s)
 echo "supervisor-wait: сплю на $run, бужу на $wake и выше, тик каждые ${interval} с, не дольше ${max} с"
 while :; do

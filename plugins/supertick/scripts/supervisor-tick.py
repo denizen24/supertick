@@ -59,8 +59,24 @@ P0), а mtime ставит файловая система.
 Иначе через две минуты — P0 undelivered_mail: SendMessage вернулся `queued` и
 потерялся, адресат стоит. Ведущий шлёт RESEND с текстом файла и делает `ack`.
 
+Режим общего протокола (`--mode shared`, 121-567 P1): среды без сообщений между агентами, где цикл
+ведёт сам ведущий (Kimi, Codex, OpenCode). Исполнитель — родной субагент среды или движок через
+run-engine.sh; свою карточку он не ведёт, её заводит и закрывает ведущий. Поэтому правила почты
+(копии, письма ведущему, недоставленные письма, DONE без REVIEW) и правила молчания (первая минута,
+контрольная точка, silent_too_long, busy) в этом режиме молчат. Работают:
+  P0  движок умер без .done, упал или результат не забран 15 мин (engine_dead, engine_failed_unread,
+      engine_result_unread); исполнитель вышел за свой срок (executor_overdue: от startedAt/spawnedAt
+      дольше timeoutSec карточки, по умолчанию час, и нет живого вызова движка с его именем);
+      карточка stuck
+  P1  движок досчитал — результат ждёт ведущего (engine_result_ready); отчёт исполнителя лежит
+      (executor_report_ready: файл из поля `report` карточки, новее старта); движок исполнителя
+      так и не запустился (engine_not_started: `executor: engine`, минута после старта, вызовов нет);
+      отчёт приёмки готов (accept_result, как и без флага)
+Имя карточки и имя каталога engine/<имя>/ у движка совпадают — так тик связывает их.
+Без флага (`--mode claude`) поведение прежнее до байта (снапшоты tools/tests/snapshots/tick).
+
 Использование:
-  supervisor-tick.py <run-dir> [--root <корень репозитория>] [--json] [--now ISO]
+  supervisor-tick.py <run-dir> [--root <корень репозитория>] [--mode claude|shared] [--json] [--now ISO]
   supervisor-tick.py ack <run-dir> <имя файла письма>   — ведущий ответил на письмо
 """
 import json
@@ -77,6 +93,8 @@ PENDING_STALE_SEC = 120        # OPEN в pending.log старше двух ми�
 UNDELIVERED_SEC = 120          # письмо участнику не взято две минуты — P0
 ENGINE_UNREAD_SEC = 900        # движок досчитал, а результат не забрали 15 мин
 ENGINE_UNREAD_PROXY_SEC = 180  # то же у прокси, пока он не отметил чтение карточкой
+DEFAULT_EXECUTOR_SEC = 3600    # срок исполнителя в режиме общего протокола, если в карточке нет timeoutSec
+MODES = ("claude", "shared")
 LIVE = ("running", "in_review", "fixing", "reviewing")
 NEEDS_ANSWER = ("QUESTION", "ESCALATION", "SENSITIVE", "QUEUED", "REVIEW_LOOP")
 PRIORITY = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
@@ -349,7 +367,42 @@ def busy_command(root, now, window_sec):
     return None
 
 
-def tick(run_dir, root=None, now=None):
+def shared_executors(run_dir, runs, calls, now, add):
+    """Правила карточек исполнителей в режиме общего протокола (свою карточку исполнитель не ведёт)."""
+    for name, run in runs.items():
+        status = str(run.get("status", "running"))
+        if status in ("done", "stopped", "idle"):
+            continue
+        ref = f"runs/{name}.json"
+        if status == "stuck":
+            add("P0", "stuck", run=name, detail=run.get("note", ""), ref=ref)
+            continue
+        started = parse_ts(run.get("startedAt")) or parse_ts(run.get("spawnedAt"))
+        age = int((now - started).total_seconds()) if started else None
+        mine = [c for c in calls if c["role"] == name]
+        report = run.get("report")
+        if report:
+            path = run_dir / report
+            try:
+                fresh = path.is_file() and (started is None or path.stat().st_mtime >= started.timestamp())
+            except OSError:
+                fresh = False
+            if fresh:
+                add("P1", "executor_report_ready", run=name, detail=f"отчёт готов: {report}", ref=report)
+                continue
+        if run.get("executor") == "engine" and not mine and age is not None and age >= FIRST_MINUTE_SEC:
+            add("P1", "engine_not_started", run=name, detail=f"{age} с после старта, а вызова движка с этим именем нет", ref=ref)
+            continue
+        timeout = int(run.get("timeoutSec") or DEFAULT_EXECUTOR_SEC)
+        if age is not None and age >= timeout and not any(c["state"] == "running" for c in mine):
+            add("P0", "executor_overdue", run=name,
+                detail=f"{age // 60} мин после старта при сроке {timeout // 60} мин, статус {status}", ref=ref)
+
+
+def tick(run_dir, root=None, now=None, mode="claude"):
+    if mode not in MODES:
+        raise SystemExit(f"supervisor-tick: --mode ждёт одно из {', '.join(MODES)}")
+    shared = mode == "shared"
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise SystemExit(f"supervisor-tick: нет каталога прогона {run_dir}")
@@ -362,15 +415,15 @@ def tick(run_dir, root=None, now=None):
 
     tasks = plan_tasks(run_dir)
     runs = read_runs(run_dir)
-    lead_mail = read_mail(run_dir, "lead")
+    lead_mail = [] if shared else read_mail(run_dir, "lead")
     done_ack = acked(run_dir)
     actions = []
 
     def add(priority, kind, run="", detail="", ref=""):
         actions.append({"priority": priority, "kind": kind, "run": run, "detail": detail, "ref": ref})
 
-    # ---- P0: копии `queued`, застрявшие у ведущего
-    for line, age in pending_open(run_dir, now):
+    # ---- P0: копии `queued`, застрявшие у ведущего (почта есть только без --mode shared)
+    for line, age in ([] if shared else pending_open(run_dir, now)):
         add("P0" if age is None or age >= PENDING_STALE_SEC else "P1", "deliver_pending", detail=line, ref="pending.log")
 
     # ---- письма ведущему
@@ -402,7 +455,7 @@ def tick(run_dir, root=None, now=None):
             ref=f"mail/lead/{letter['file']}")
 
     # ---- письма участникам: лежит, а адресат не взял (SendMessage ушёл `queued` и пропал)
-    for box in mail_boxes(run_dir):
+    for box in ([] if shared else mail_boxes(run_dir)):
         card = runs.get(box, {})
         if str(card.get("status", "")) in ("done", "stopped"):
             continue   # адресат закончил: письмо ему уже не нужно, ротацию ведёт ведущий
@@ -435,7 +488,8 @@ def tick(run_dir, root=None, now=None):
                 add("P1", "accept_result", detail=f"task {task}: отчёт приёмки готов ({verdict})", ref=f"reports/accept-task{task}.md")
 
     # ---- движки
-    for call in engine_calls(run_dir, now):
+    calls = engine_calls(run_dir, now)
+    for call in calls:
         if call["state"] == "dead":
             add("P0", "engine_dead", run=call["role"], detail=f"процесс исчез без маркера .done", ref=call["base"])
         elif call["state"] == "done-unread" and call["failed"]:
@@ -443,11 +497,18 @@ def tick(run_dir, root=None, now=None):
         elif call["state"] == "done-unread" and call["age"] >= engine_unread_sec(run_dir, runs, call):
             add("P0", "engine_result_unread", run=call["role"],
                 detail=f"результат готов {call['age'] // 60} мин, никто не забрал", ref=call["base"] + ".result.md")
+        elif shared and call["state"] == "done-unread":
+            # цикл ведёт ведущий: досчитавший движок — это его следующий шаг, а не повод ждать 15 минут
+            add("P1", "engine_result_ready", run=call["role"], detail=f"результат готов {call['age']} с назад",
+                ref=call["base"] + ".result.md")
+
+    if shared:
+        shared_executors(run_dir, runs, calls, now, add)
 
     # ---- участники: первая минута, контрольные точки, молчание
     signals_from = {l["from"] for l in lead_mail}
     busy = {}   # окно -> команда живого теста под корнем; считается по нужде, раз за тик
-    for name, run in runs.items():
+    for name, run in ([] if shared else runs.items()):
         status = str(run.get("status", "running"))
         if status in ("done", "stopped", "idle"):
             continue
@@ -513,6 +574,8 @@ def tick(run_dir, root=None, now=None):
         "firstMinute": firsts,
         "checkpoints": checkpoints,
     }
+    if shared:
+        snapshot["mode"] = "shared"
     (run_dir / "state").mkdir(exist_ok=True)
     tmp = memory_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -535,7 +598,7 @@ def main(argv):
         return 0
     if not argv:
         raise SystemExit(__doc__)
-    run_dir, root, as_json, now = argv[0], None, False, None
+    run_dir, root, as_json, now, mode = argv[0], None, False, None, "claude"
     rest = argv[1:]
     while rest:
         a = rest.pop(0)
@@ -545,9 +608,11 @@ def main(argv):
             as_json = True
         elif a == "--now":
             now = parse_ts(rest.pop(0))
+        elif a == "--mode":
+            mode = rest.pop(0) if rest else ""
         else:
             raise SystemExit(f"supervisor-tick: неизвестный аргумент {a}")
-    snap = tick(run_dir, root, now)
+    snap = tick(run_dir, root, now, mode)
     if as_json:
         print(json.dumps(snap, ensure_ascii=False))
     else:
