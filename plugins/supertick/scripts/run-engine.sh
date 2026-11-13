@@ -172,16 +172,20 @@ PY
   if [ -n "$RE_REPORT" ] && [ "$status" = done ]; then   # a failed call never lands in reports/
     mkdir -p "$(dirname "$RE_REPORT")"
     report="$RE_REPORT"
-    if [ -e "$report" ]; then   # never overwrite: name-<label>.md, then -2, -3…
+    if [ "${RE_REPORT_PRE:-1}" = 0 ] && [ -s "$report" ]; then
+      # the engine wrote the report file itself during this call (a role with write access does so despite
+      # its brief, 121-567 H4 live run): that file IS the report; the reply stays in .out.result.md
+      report_by=engine_file
+    elif [ -e "$report" ]; then   # never overwrite: name-<label>.md, then -2, -3…
       stem="${RE_REPORT%.md}"; report="$stem-$RE_LABEL.md"; n=2
       while [ -e "$report" ]; do report="$stem-$RE_LABEL-$n.md"; n=$((n+1)); done
     fi
-    cp "$out.result.md" "$report"
+    [ "${report_by:-}" = engine_file ] || cp "$out.result.md" "$report"
   fi
 
   json_line ts "$ended" event "$status" role "$RE_ROLE" engine "$RE_ENGINE" task "$RE_TASK" \
     label "$RE_LABEL" pid "$$" exit "$rc" wall_s "$wall" session "$session" reason "$reason" \
-    out "$out" result "$out.result.md" report "$report" >> "$RE_LEDGER"
+    out "$out" result "$out.result.md" report "$report" report_by "${report_by:-reply}" >> "$RE_LEDGER"
 
   {
     echo "status=$status"
@@ -194,6 +198,7 @@ PY
     echo "out=$out"
     [ -s "$out.result.md" ] && echo "result=$out.result.md"
     [ -n "$report" ] && echo "report=$report"
+    [ -n "${report_by:-}" ] && echo "report_by=$report_by"
   } > "$out.done.tmp"
   mv "$out.done.tmp" "$out.done"
   exit 0
@@ -261,8 +266,9 @@ if [ -n "$report" ]; then
   case "$report" in /*) rep="$report" ;; *) rep="$run/reports/$report" ;; esac
 fi
 
+rep_pre=1; [ -n "$rep" ] && [ ! -e "$rep" ] && rep_pre=0   # absent at launch: if it appears, the engine wrote it
 RE_OUT="$out" RE_ROLE="$role" RE_ENGINE="$engine" RE_TASK="$task" RE_LABEL="$label" \
-RE_SESSION="$session" RE_SESSION_REGEX="$sregex" RE_PROMPT="$prompt" RE_REPORT="$rep" \
+RE_SESSION="$session" RE_SESSION_REGEX="$sregex" RE_PROMPT="$prompt" RE_REPORT="$rep" RE_REPORT_PRE="$rep_pre" \
 RE_TIMEOUT="$tmo" RE_LEDGER="$run/ledger.jsonl" \
   setsid nohup "$(readlink -f "$0")" __worker "$@" < /dev/null > /dev/null 2>&1 &
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Поддельная среда ведущего для тестов пробы (121-567, H2).
 
-Стоит в PATH под именем CLI среды (`kimi`). Аргументы headless-запуска игнорирует, сам играет ведущего:
+Стоит в PATH под именем CLI среды (`kimi` или `codex`, H4): по имени выбирает среду, её уровень и формат
+вывода (stream-json Kimi или JSONL Codex) по FAKE_LEAD_HOST из обёртки. Аргументы headless-запуска игнорирует, сам играет ведущего:
 каждая команда — блок `# lead:<id>` из LEAD.md набора ($SUPERTICK_ROOT), как в test_lead_protocol.py.
 Одна задача: кодер (мок оставит PROBE-BUG) → ревью CHANGES REQUESTED → продолжение кодера → ревью
 APPROVED → коммит → приёмка PASS → DONE.
@@ -16,6 +17,7 @@ FAKE_LEAD_BREAK портит ведущего ровно в одном мест�
   poll    ждёт через supervisor-wait.sh, но приёмку — опросом с sleep
   resume  после CHANGES REQUESTED запускает нового кодера вместо продолжения
   hands   сам правит файл задачи перед коммитом
+  hook    кладёт файл в .git/hooks (как кодер с записью в .git, риск R11)
   tests   исправный, но в конце сам гоняет тесты (замечание, не провал)
   hang    ничего не делает и висит (для проверки срока)
   exit    падает с кодом 3 сразу
@@ -29,6 +31,8 @@ import time
 from pathlib import Path
 
 BREAK = os.environ.get("FAKE_LEAD_BREAK", "none")
+HOST = os.environ.get("FAKE_LEAD_HOST", "kimi")   # обёртка в PATH ставит имя своей среды
+LEVEL = {"codex": "L1", "kimi": "L2"}[HOST]
 ROOT = Path(os.environ["SUPERTICK_ROOT"])
 S = ROOT / "scripts"
 REPO = Path.cwd()
@@ -40,7 +44,7 @@ TRANSCRIPT = []
 
 def sh(block, extra="", **subs):
     cmd = BLOCKS[block]
-    for key, value in {"S": S, "RUN": RUN, "REPO": REPO, "HOST": "kimi", **subs}.items():
+    for key, value in {"S": S, "RUN": RUN, "REPO": REPO, "HOST": HOST, **subs}.items():
         cmd = cmd.replace(f"<{key}>", str(value))
     left = re.findall(r"<[^\s<>][^<>]*>", cmd)
     if left:
@@ -49,9 +53,16 @@ def sh(block, extra="", **subs):
 
 
 def raw(cmd):
-    TRANSCRIPT.append({"role": "assistant", "tool_calls": [{"type": "function", "function": {
-        "name": "Bash", "arguments": json.dumps({"command": cmd})}}]})
-    return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, cwd=str(REPO), timeout=300)
+    if HOST == "codex":   # как codex exec --json: команда обёрнута в bash -lc
+        wrapped = "/bin/bash -lc " + json.dumps(cmd)
+        TRANSCRIPT.append({"type": "item.completed", "item": {"id": f"item_{len(TRANSCRIPT)}", "type": "command_execution",
+                           "command": wrapped, "aggregated_output": res.stdout[-200:], "exit_code": res.returncode,
+                           "status": "completed"}})
+    else:
+        TRANSCRIPT.append({"role": "assistant", "tool_calls": [{"type": "function", "function": {
+            "name": "Bash", "arguments": json.dumps({"command": cmd})}}]})
+    return res
 
 
 def task_section():
@@ -121,11 +132,12 @@ def main():
     host = json.loads(sh("host").stdout)
     engines = sh("resolve").stdout.strip()
     base = sh("run-dir").stdout.strip().splitlines()[-1]
+    assert "GIT GUARD SNAPSHOT" in sh("git-guard").stdout
     root_line = "/elsewhere/supertick" if BREAK == "root" else str(ROOT)
     executors = "" if BREAK == "state" else "## Executors\n- task1-coder: task 1, engine mock, запуск 1\n"
     (RUN / "state.md").write_text(
         "# Team State — feature-double\n\n## Phase: EXECUTION\n## Team Name: feature-double\n"
-        f"## Complexity: SIMPLE\n## Base Commit: {base}\n## Host: kimi (L2)\nPlugin root: {root_line}\n\n"
+        f"## Complexity: SIMPLE\n## Base Commit: {base}\n## Host: {HOST} ({LEVEL})\nPlugin root: {root_line}\n\n"
         f"## Engines\n{engines}\n\n{executors}", encoding="utf-8")
     assert host["action"] in ("line", "none"), host
     plan("IN_PROGRESS(task1-coder)")
@@ -152,6 +164,8 @@ def main():
     if BREAK == "hands":
         with open(REPO / "src" / "probe_calc.py", "a") as fh:
             fh.write("# поправил ведущий\n")
+    if BREAK == "hook":
+        (REPO / ".git" / "hooks" / "post-checkout").write_text("#!/bin/sh\necho owned\n")
     n += 1
     coder = "task1-coder-b" if BREAK == "resume" else "task1-coder"
     done = call("coder", coder, n if BREAK != "resume" else 2, f"task1-coder-{n}",
@@ -169,9 +183,13 @@ def main():
     sh("tick")
     if BREAK == "tests":
         raw(f"cd {REPO} && python3 -m unittest 2>&1 | tail -1")
+    check = sh("git-check")
+    assert ("GIT GUARD CHANGED" in check.stdout) == (BREAK == "hook"), check.stdout
     for rec in TRANSCRIPT:
         print(json.dumps(rec, ensure_ascii=False))
-    print(json.dumps({"role": "assistant", "content": "ГОТОВО"}, ensure_ascii=False))
+    final = ({"type": "item.completed", "item": {"type": "agent_message", "text": "ГОТОВО"}} if HOST == "codex"
+             else {"role": "assistant", "content": "ГОТОВО"})
+    print(json.dumps(final, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,15 @@
+{
+  "host": "codex",
+  "output": "build/codex/supertick",
+  "note": "Сборка для Codex CLI (121-567, H4): плагин с .codex-plugin/plugin.json и навыками team-feature и setup. Родных типов исполнителей у Codex нет — роли идут движком codex (engine-config: roles_on_engine). Результат не в git (build/ в .gitignore); ставит tools/install-codex.sh.",
+  "include": [
+    {"from": "core/scripts", "to": "scripts", "exclude": ["tests"]},
+    {"from": "core/engines", "to": "engines"},
+    {"from": "core/references", "to": "references"},
+    {"from": "core/roles", "to": "roles"},
+    {"from": "hosts/shared/LEAD.md", "to": "LEAD.md"},
+    {"from": "hosts/codex/primitives.md", "to": "primitives.md"},
+    {"from": "hosts/codex/plugin.json", "to": ".codex-plugin/plugin.json"},
+    {"from": "hosts/codex/skills", "to": "skills"}
+  ]
+}

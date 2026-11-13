@@ -10,7 +10,7 @@ headless-режиме на выбранной модели с крошечной
 Обычно её зовут через `supertick-setup.py lead-probe <профиль>` (итог пишется в профиль); этот файл —
 стенд, запуск и проверки:
 
-  lead-probe.py --host kimi [--model M] [--root НАБОР] [--timeout С] [--keep КАТАЛОГ] [--json]
+  lead-probe.py --host kimi|codex [--model M] [--root НАБОР] [--timeout С] [--keep КАТАЛОГ] [--json]
 
 Стенд — во временном каталоге: `repo/` (git, задача), `root/` (копия набора, где supervisor-wait.sh
 обёрнут счётчиком вызовов), `probe/` (сценарий мока, его журнал, конфиг пробы, вывод среды).
@@ -26,7 +26,8 @@ headless-режиме на выбранной модели с крошечной
   wait    ожидание через supervisor-wait.sh --mode shared, без опроса sleep
   cycle   задача DONE прошла ревью и приёмку; после CHANGES REQUESTED кодер продолжен, а не заменён
   taken   результаты разобраны: финальный тик без P0/P1
-  hands   исходники руками ведущего не правились: коммиты только мок-кодера, дерево чистое
+  hands   исходники руками ведущего не правились: коммиты только мок-кодера, дерево чистое,
+          .git/hooks и .git/config не тронуты (риск R11)
 
 Замечания (не влияют на итог, видны в нём и пишутся в профиль):
   tests   ведущий сам запускал тесты или сборку (по LEAD.md это дело проверяющих)
@@ -43,10 +44,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import importlib.util
 from datetime import date
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_file_location("git_guard", SCRIPTS_DIR / "git-guard.py")
+gg = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gg)
 CHECKS = ("finish", "root", "state", "plan", "engine", "wait", "cycle", "taken", "hands")
 MOCK_AUTHOR = "supertick-mock-coder"
 FEATURE = ("Добавь в src/probe_calc.py функцию double(x), которая возвращает 2 * x, "
@@ -54,16 +59,24 @@ FEATURE = ("Добавь в src/probe_calc.py функцию double(x), кото
 LEAD_ARGS = "--no-research --complexity=simple --force-team --coders=1"
 PROMPT = ("Запусти навык supertick:team-feature (инструмент Skill) с аргументами: «{feature}» {args}. "
           "Это проба ведущего: исполни протокол навыка до конца, вопросов не задавай.")
-# Среды, для которых проба есть: argv headless-запуска. Codex — с его адаптером (H4), OpenCode — H3.
+PROMPTS = {   # у Codex нет инструмента Skill: навык зовётся по имени, файл SKILL.md он читает сам
+    "codex": ("Используй навык supertick:team-feature с аргументами: «{feature}» {args}. "
+              "Это проба ведущего: исполни протокол навыка до конца в этом ходе, вопросов не задавай."),
+}
+# Среды, для которых проба есть: argv headless-запуска. OpenCode — с его адаптером (H3).
 HOST_ARGV = {
     "kimi": lambda bin_, model, prompt: [bin_] + (["-m", model] if model else []) +
                                        ["--output-format", "stream-json", "-p", prompt],
+    # ведущий Codex — без песочницы, как его запускает пользователь (engine-config LAUNCH): иначе
+    # исполнители `codex exec` из его shell не стартуют
+    "codex": lambda bin_, model, prompt: [bin_, "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access"] +
+                                        (["-m", model] if model else []) + ["--json", "--", prompt],
 }
-HOST_BINARY = {"kimi": "kimi"}
-INSTALLED_ROOT = {"kimi": "~/.kimi-code/plugins/managed/supertick"}
+HOST_BINARY = {"kimi": "kimi", "codex": "codex"}
+INSTALLED_ROOT = {"kimi": "~/.kimi-code/plugins/managed/supertick",
+                  "codex": "${CODEX_HOME:-~/.codex}/plugins/cache/supertick-local/supertick/*"}
 NO_PROBE = {
     "claude-code": "ведущий Claude Code работает по своему протоколу 1.1.x; проба общего протокола к нему не относится",
-    "codex": "проба ведущего Codex появится вместе с адаптером Codex (H4)",
     "opencode": "проба ведущего OpenCode появится вместе с адаптером OpenCode (H3)",
 }
 MOCK_ROLES = ("coder", "unified-reviewer", "second-reviewer", "acceptance-checker", "spec-verifier", "ci-verifier",
@@ -217,7 +230,18 @@ def default_root(host):
         return Path(os.environ["SUPERTICK_ROOT"]).expanduser()
     if (SCRIPTS_DIR.parent / "LEAD.md").is_file():
         return SCRIPTS_DIR.parent
-    return Path(INSTALLED_ROOT.get(host, "")).expanduser()
+    return installed_root(host)
+
+
+def installed_root(host):
+    """Корень набора, установленного в среду; у Codex каталог версии — берётся самый свежий."""
+    pattern = INSTALLED_ROOT.get(host, "")
+    pattern = pattern.replace("${CODEX_HOME:-~/.codex}", os.environ.get("CODEX_HOME") or "~/.codex")
+    pattern = os.path.expanduser(pattern)
+    if "*" not in pattern:
+        return Path(pattern)
+    found = sorted(Path("/").glob(pattern.lstrip("/")), key=lambda p: p.stat().st_mtime)
+    return found[-1] if found else Path(pattern.split("*")[0])
 
 
 def git(repo, *args, check=True):
@@ -256,6 +280,7 @@ def build_stand(stand, root, host, model, base_cfg=None):
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base")
     base = git(repo, "rev-parse", "HEAD").stdout.strip()
+    (probe / "git-before.json").write_text(json.dumps(gg.fingerprint(repo)["files"]), encoding="utf-8")
 
     base_cfg = base_cfg or {}
     profile = {"lead": {"host": host, **({"model": model} if model else {})},
@@ -285,7 +310,7 @@ def run_host(paths, host, model, timeout, env=None, binary=None):
     bin_ = binary or shutil.which(HOST_BINARY[host], path=(env or os.environ).get("PATH"))
     if not bin_:
         raise ProbeError(f"{HOST_BINARY[host]} не найден в PATH")
-    prompt = PROMPT.format(feature=FEATURE, args=LEAD_ARGS)
+    prompt = PROMPTS.get(host, PROMPT).format(feature=FEATURE, args=LEAD_ARGS)
     argv = HOST_ARGV[host](bin_, model, prompt)
     started = time.time()
     with open(paths["probe"] / "host.out", "wb") as out, open(paths["probe"] / "host.err", "wb") as err:
@@ -373,9 +398,15 @@ def jsonl(path):
 
 
 def shell_commands(transcript):
-    """Команды shell ведущего из вывода среды (stream-json Kimi: tool_calls → arguments.command)."""
+    """Команды shell ведущего из вывода среды: stream-json Kimi (tool_calls → arguments.command) и
+    JSONL Codex (item.completed с command_execution → command)."""
     cmds = []
     for rec in jsonl(transcript):
+        item = rec.get("item") if isinstance(rec.get("item"), dict) else {}
+        if rec.get("type") == "item.completed" and item.get("type") == "command_execution" \
+                and isinstance(item.get("command"), str):
+            cmds.append(item["command"])
+            continue
         for call in rec.get("tool_calls") or []:
             fn = call.get("function") or {}
             try:
@@ -509,12 +540,18 @@ def check_all(paths, host, exit_code, timeout):
     dirty = [l for l in git(repo, "status", "--porcelain", "-uall", check=False).stdout.splitlines()
              if not l[3:].startswith(".supertick/")]
     tamper = read(probe / "mock" / "tamper.log").strip().splitlines()
+    try:
+        guard = gg.diff(json.loads(read(probe / "git-before.json") or "{}"), gg.fingerprint(repo)["files"])
+    except SystemExit:
+        guard = ["каталог git стенда пропал"]
     if foreign:
         put("hands", False, "коммиты не мок-кодера: " + ", ".join(foreign))
     elif tamper:
         put("hands", False, tamper[0])
     elif dirty:
         put("hands", False, "незакоммиченные правки: " + ", ".join(l[3:] for l in dirty[:3]))
+    elif guard:
+        put("hands", False, ".git тронут: " + ", ".join(guard[:3]))
     else:
         put("hands", True)
     notes = []
@@ -533,7 +570,7 @@ def verdict(checks):
 
 
 def bundle_version(root):
-    for rel in ("kimi.plugin.json", ".claude-plugin/plugin.json", "plugin.json"):
+    for rel in ("kimi.plugin.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"):
         try:
             data = json.loads((Path(root) / rel).read_text(encoding="utf-8"))
             if isinstance(data, dict) and data.get("version"):

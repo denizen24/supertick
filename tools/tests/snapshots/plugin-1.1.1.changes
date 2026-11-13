@@ -2,12 +2,13 @@
 # Один путь на строку (от plugins/supertick/), после пробела — причина и запись в CHANGELOG.
 # Пока файл пуст, сборка равна 1.1.1 побайтно. Путь отсюда, который на деле не расходится, — ошибка:
 # тест требует убрать устаревшее исключение.
-scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host); в CHANGELOG
-scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; в CHANGELOG
+scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host; H4 — роли Codex на движке codex); в CHANGELOG
+scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; H4 — файл отчёта, созданный исполнителем, и есть отчёт (report_by); в CHANGELOG
 scripts/mock-engine.py  новый скрипт F4: мок-движок (ok|fail|hang|no-session|is_error); в CHANGELOG
 engines/kimi-read.md  новый файл F4: профиль Kimi только на чтение для --agent-file; в CHANGELOG
 scripts/supertick-setup.py  новый скрипт F5 (supertick-setup.py: discover, диалог, plan/apply, launch; H2 — lead-probe); в CHANGELOG
-scripts/lead-probe.py  новый скрипт H2: проба пригодности ведущего (стенд, мок-сценарий, проверки по файлам); в CHANGELOG
+scripts/lead-probe.py  новый скрипт H2: проба пригодности ведущего (стенд, мок-сценарий, проверки по файлам; H4 — Codex и сторож .git); в CHANGELOG
+scripts/git-guard.py  новый скрипт H4: отпечаток .git/hooks и .git/config в начале прогона и сверка в конце (риск R11); в CHANGELOG
 references/models-catalog.json  новый файл F5: запасной список моделей для диалога подключения; в CHANGELOG
 scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: версия, среда, конфиг, CLI, профиль, шаг 0); в CHANGELOG
 scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); в CHANGELOG

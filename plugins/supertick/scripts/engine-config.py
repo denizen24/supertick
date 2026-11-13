@@ -49,8 +49,11 @@ HOSTS = {
     "kimi":        {"level": "L2", "native": "native", "subagents": True, "engine": "kimi"},
     "opencode":    {"level": "L1", "native": "opencode", "subagents": False, "engine": "opencode"},
     # Codex (спайк S0-CX 12.11.2026): родные субагенты с продолжением есть (spawn_agent, send_input,
-    # wait_agent до часа), но ведущего никто не будит: ожидание только внутри хода — уровень L1
-    "codex":       {"level": "L1", "native": "native", "subagents": True, "engine": "codex"},
+    # wait_agent до часа), но ведущего никто не будит: ожидание только внутри хода — уровень L1.
+    # roles_on_engine (H4): неназначенные роли идут не родному субагенту, а движком codex с моделью ведущего —
+    # у spawn_agent нет ни типа, ни своей песочницы (роль чтения могла бы писать), а `codex exec` даёт
+    # каждой роли свой режим и запись в .git только кодеру
+    "codex":       {"level": "L1", "native": "native", "subagents": True, "engine": "codex", "roles_on_engine": True},
 }
 
 # Пресеты. Шаблоны — списки аргументов; {prompt} раскрывает run-engine.sh, {engines} и {scripts} —
@@ -148,8 +151,11 @@ ENGINE_KEYS = {"model", "effort", "cmd", "resume", "mode_flags", "session", "res
 TOP_KEYS = {"enabled", "fallback", "active_profile", "profiles", "roles", "engines"}
 PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe", "sources", "installed"}
 CLI_BINARIES = ("claude", "kimi", "opencode", "codex", "cursor-agent", "grok")   # CLI, которые учитывает setup (F5)
-LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "codex": "codex -m {model}",
+LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "codex": "codex -m {model} --sandbox danger-full-access",
           "opencode": "opencode -m {model}"}   # команда запуска ведущего: профиль → среда с нужной моделью
+# Ведущий Codex — без песочницы (H4, проверено 13.11.2026): в workspace-write дочерний `codex exec` не стартует
+# (Read-only file system в ~/.codex), а с сетью и ~/.codex не может собрать свою песочницу внутри чужой (bubblewrap).
+# Ограничения ролей держат песочницы самих исполнителей — `codex exec --sandbox read-only|workspace-write`.
 SETUP_COMMAND = "python3 {scripts}/supertick-setup.py setup"
 
 
@@ -320,6 +326,15 @@ def call_access(eng, role, access):
     if access == "read" and ROLES.get(role, {}).get("commands") and not eng.get("read_runs_commands", True):
         return "write"
     return access
+
+
+def host_model(cfg, prof, host):
+    """Модель ролей, которые хост исполняет своим движком без назначения: модель ведущего профиля этой среды,
+    иначе модель движка из конфига или пресета."""
+    lead = (prof or {}).get("lead") or {}
+    if lead.get("host") == host and lead.get("model"):
+        return lead["model"]
+    return (engine_def(cfg, HOSTS[host]["engine"]) or {}).get("model", "")
 
 
 def model_of(cfg, role_spec_, eng):
@@ -511,12 +526,13 @@ def resolve(cfg, host, available, engines_off=False, profile=None, load_warnings
         warns.append({"code": "engine_missing", "role": role, "engine": engine})
         table[role], details[role] = native, {"engine": native, "model": ""}
         explicit.discard(role)
-    # правило 1: хост без субагентов исполняет неназначенные роли своим движком
-    if not h["subagents"]:
+    # правило 1: хост без субагентов (и Codex, roles_on_engine) исполняет неназначенные роли своим движком
+    if not h["subagents"] or (h.get("roles_on_engine") and usable(h["engine"])):
+        model = host_model(cfg, prof, host)
         for role, reg in ROLES.items():
             if role not in table and role not in ("second-reviewer", "browser-verifier", "web-researcher") \
-                    and reg.get("native_on") != "all":
-                table[role], details[role] = h["engine"], {"engine": h["engine"], "model": ""}
+                    and reg.get("native_on") != "all" and host not in (reg.get("native_on") or []):
+                table[role], details[role] = h["engine"], {"engine": h["engine"], "model": model}
     # правило 5: second-reviewer (D7) — ключ, бинарь и несовпадение с рецензентом по движку И модели
     sec_engine = roles.get("second-reviewer", {}).get("engine") if "second-reviewer" in roles else None
     sec_named = "second-reviewer" in table and not (ROLES["second-reviewer"].get("only_on"))
@@ -561,6 +577,8 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
         raise ValueError(f"для движка {engine} нет пресета")
     _, prof = active_profile(cfg, profile)
     spec = effective_roles(cfg, prof).get(role, {})
+    if not spec.get("engine") and engine == h["engine"]:   # роль без назначения на движке хоста (правило 1)
+        spec = dict(spec, model=spec.get("model") or res["detail"][role]["model"])
     access = call_access(eng, role, role_access(role, spec)[0])
     session = resume or (str(uuid.uuid4()) if eng.get("caller_session") else "")
     values = {"{model}": model_of(cfg, spec, eng), "{effort}": effort_of(spec, eng),

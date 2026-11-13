@@ -288,7 +288,10 @@ class Launch(unittest.TestCase):
         self.assertEqual(json.loads(res.stdout)["command"], "kimi -m kimi-code/k3")
 
     def test_launch_without_model_has_no_dangling_flag(self):
-        self.assertEqual(ss.launch_command({"host": "codex"}), "codex")
+        # ведущий Codex — без песочницы (H4): иначе исполнители `codex exec` из его shell не стартуют
+        self.assertEqual(ss.launch_command({"host": "codex"}), "codex --sandbox danger-full-access")
+        self.assertEqual(ss.launch_command({"host": "codex", "model": "gpt-5.6-sol"}),
+                         "codex -m gpt-5.6-sol --sandbox danger-full-access")
         self.assertEqual(ss.launch_command({"host": "claude-code", "model": "opus"}), "claude --model opus")
 
     def test_launch_unknown_profile(self):

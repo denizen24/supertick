@@ -41,22 +41,23 @@ ss = load("supertick_setup_h2", "supertick-setup.py")
 
 
 class Bench:
-    """Собранный набор Kimi и каталог PATH с поддельным `kimi`."""
+    """Собранный набор среды (kimi или codex) и каталог PATH с поддельным CLI под её именем."""
+    MODEL = {"kimi": "kimi-code/k3", "codex": "gpt-5.6-sol"}
 
-    def __init__(self, home):
-        self.home = Path(home)
+    def __init__(self, home, host="kimi"):
+        self.home, self.host = Path(home), host
         self.bundle = self.home / "bundle"
-        subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "build-host.py"), "kimi", "--out", str(self.bundle)],
+        subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "build-host.py"), host, "--out", str(self.bundle)],
                        capture_output=True, text=True, check=True)
         self.bin = self.home / "bin"
         self.bin.mkdir()
-        executable(self.bin / "kimi", f'#!/bin/sh\nexec {sys.executable} {FAKE} "$@"\n')
+        executable(self.bin / host, f'#!/bin/sh\nFAKE_LEAD_HOST={host} exec {sys.executable} {FAKE} "$@"\n')
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ.get('PATH', '')}", TZ="UTC")
         self.env.pop("CLAUDECODE", None)
 
     def probe(self, broken="none", timeout=120, keep=None):
         env = dict(self.env, FAKE_LEAD_BREAK=broken)
-        return lp.probe("kimi", "kimi-code/k3", root=self.bundle, timeout=timeout, env=env, keep=keep)
+        return lp.probe(self.host, self.MODEL[self.host], root=self.bundle, timeout=timeout, env=env, keep=keep)
 
 
 @unittest.skipUnless(shutil.which("setsid") and shutil.which("git"), "нужны setsid и git")
@@ -72,7 +73,7 @@ class ProbeVerdicts(unittest.TestCase):
 
     def test_each_broken_lead_fails_on_its_check(self):
         cases = {"root": "root", "state": "state", "plan": "plan", "engine": "engine", "wait": "wait", "poll": "wait",
-                 "resume": "cycle", "hands": "hands", "exit": "finish"}
+                 "resume": "cycle", "hands": "hands", "hook": "hands", "exit": "finish"}
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(cases)) as pool:
             got = dict(zip(cases, pool.map(self.bench.probe, cases)))
         for broken, check in cases.items():
@@ -113,7 +114,7 @@ class ProbeVerdicts(unittest.TestCase):
 
 class ProbeLimits(unittest.TestCase):
     def test_hosts_without_a_probe_say_why(self):
-        for host, word in (("claude-code", "1.1.x"), ("codex", "H4"), ("opencode", "H3")):
+        for host, word in (("claude-code", "1.1.x"), ("opencode", "H3")):   # Codex — проба с H4 (test_codex_host)
             with self.subTest(host=host):
                 with self.assertRaises(lp.ProbeError) as ctx:
                     lp.probe(host)

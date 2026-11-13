@@ -113,6 +113,32 @@
   The first live probe showed the lead running the old block literally and taking the installed plugin while
   `$SUPERTICK_ROOT` pointed elsewhere.
 
+- Codex CLI adapter (H4): `hosts/codex/` (plugin `.codex-plugin/plugin.json`, skills `team-feature` and
+  `setup`, `primitives.md` for level L1: the lead waits inside its turn with `supervisor-wait.sh --max 1500`
+  in the foreground and `write_stdin` polls of up to 300 s, and never ends the turn to wait) and
+  `tools/install-codex.sh` (local marketplace, then `codex plugin marketplace add` and `codex plugin add`;
+  repeat refreshes the cache, `--uninstall`). Checked on 13.11.2026: inside a `workspace-write` lead a child
+  `codex exec` does not start (read-only `~/.codex`), and with network and `~/.codex` writable it cannot
+  build its own sandbox inside the lead's (bubblewrap). So the Codex lead runs without a sandbox
+  (`launch` prints `codex -m <model> --sandbox danger-full-access`), and role limits are held by the
+  executors' own sandboxes: under such a lead a `codex exec --sandbox read-only` child runs shell and is
+  refused writes.
+- `engine-config.py`: on Codex a role without an assignment runs on the `codex` engine with the lead's
+  model instead of a native subagent (`spawn_agent` has neither type nor sandbox, so a read role could
+  write); only the coder gets the `.git` directories writable. Without the `codex` binary the roles stay
+  native. Explicit assignments win.
+- New `scripts/git-guard.py` (risk R11): `snapshot` fingerprints `.git/hooks` and `.git/config` (and the
+  worktree config) right after the run directory is made, `check` compares them at the end. LEAD.md got
+  `lead:git-guard` and `lead:git-check`; a change goes to the feed verbatim and first into the manual
+  checks, the lead does not revert it. The lead probe fails `hands` on such a change.
+- Lead probe for Codex: `codex exec --sandbox danger-full-access --json`, shell commands read from
+  `command_execution` items, the installed bundle found in `$CODEX_HOME/plugins/cache/supertick-local/`.
+- `run-engine.sh`: when the report file did not exist at launch and the engine wrote it itself during the
+  call (roles with write access do so despite the brief — seen in the H4 live run with a Codex coder and
+  cursor in write mode), that file is the report (`report_by=engine_file` in `.done` and the ledger) and no
+  `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
+  the call is still never overwritten.
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).
