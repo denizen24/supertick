@@ -93,6 +93,26 @@
   host level L1 with native sub-agents: no wake-up of the lead, waiting only inside a turn. The 1.1.1 `codex`
   argv is not kept. The lead probe stand gained `PROBE_WAIT=poll` for hosts without wake-up.
 
+- Lead probe (H2, p. 4.5): new `scripts/lead-probe.py` and `supertick-setup.py lead-probe <profile>`. The probe
+  starts the profile's lead host headless on its model with a tiny task in a throw-away stand (git repo,
+  a copy of the bundle with `supervisor-wait.sh` wrapped by a call counter, every role on the mock engine
+  with a script: the first coder round leaves a `PROBE-BUG` line, the reviewer asks for changes, then
+  approves, acceptance passes). The verdict comes from the run files only, no model judges text: `finish`,
+  `root`, `state`, `plan`, `engine` (mock calls ≤ `run-engine.sh` launches), `wait` (`supervisor-wait.sh
+  --mode shared`, no `sleep` polling), `cycle` (review and acceptance before DONE; the coder is resumed,
+  not replaced, after CHANGES REQUESTED), `taken` (final tick without P0/P1), `hands` (only the mock coder
+  commits, tree clean). `passed` or `failed: <first failed check>` with date and bundle version is stored
+  as the profile's `lead_probe` (atomic write with backup; `--no-write` to only look) and shown by the
+  dialog ("проверена как ведущий <date>"), by `plan`, `discover` and `doctor`. It warns, never forbids;
+  `apply` keeps the result while the lead host and model stay the same. Hosts: Kimi now; Codex with its
+  adapter (H4), OpenCode with H3; the Claude Code lead keeps its 1.1.x protocol and is not probed.
+  A lead that runs tests itself gets a note (`⚠ tests`, stored with the result), not a failure. Live on
+  Kimi `kimi-code/k3`, 13.11.2026: four runs, the last `passed` in 995 s (`docs/spikes/h2-lead-probe-live.md`).
+
+- Kimi skills: the bundle root is computed by one command, `cd "${SUPERTICK_ROOT:-${KIMI_SKILL_DIR}/../..}"`.
+  The first live probe showed the lead running the old block literally and taking the installed plugin while
+  `$SUPERTICK_ROOT` pointed elsewhere.
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).

@@ -91,6 +91,23 @@ class KimiBuild(unittest.TestCase):
         for needle in ("LEAD.md", "primitives.md", "KIMI_SKILL_DIR", "SUPERTICK_ROOT", "kimi", "$ARGUMENTS"):
             self.assertIn(needle, text)
 
+    def test_root_block_prefers_supertick_root_over_the_skill_dir(self):
+        # H2, живая проба 13.11: ведущий исполнил блок буквально и взял установленный набор вместо $SUPERTICK_ROOT
+        block = re.compile(r"```bash\n\s*(cd .+?)\n\s*```", re.S)
+        other = tmpdir(self)
+        for skill in ("team-feature", "setup"):
+            skill_dir = self.out / "skills" / skill
+            text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+            m = block.search(text) or re.search(r"`(cd \"\$\{SUPERTICK_ROOT[^`]+)`", text)
+            self.assertIsNotNone(m, f"{skill}: нет команды корня")
+            cmd = m.group(1).replace("${KIMI_SKILL_DIR}", str(skill_dir))   # Kimi подставляет путь в текст сам
+            env = {k: v for k, v in os.environ.items() if k != "SUPERTICK_ROOT"}
+            for given, want in ((None, self.out), (other, other)):
+                with self.subTest(skill=skill, root=given):
+                    run_env = dict(env, **({"SUPERTICK_ROOT": str(given)} if given else {}))
+                    res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=run_env)
+                    self.assertEqual(Path(res.stdout.strip()).resolve(), Path(want).resolve(), res.stderr)
+
     def test_claude_code_build_is_untouched(self):
         res = subprocess.run([sys.executable, str(BUILD), "claude-code", "--check"], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)

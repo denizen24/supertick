@@ -9,6 +9,8 @@
   supertick-setup.py apply    --answers ФАЙЛ [--no-probe] [--force] [--json]
   supertick-setup.py setup    [--host H] [--no-probe]                (диалог в терминале, затем plan и apply)
   supertick-setup.py launch   <профиль> [--json]
+  supertick-setup.py lead-probe <профиль> [--timeout С] [--root НАБОР] [--keep КАТАЛОГ] [--no-write] [--json]
+                                (проба пригодности ведущего, п. 4.5: итог пишется в профиль как lead_probe)
 
 Файл ответов (`--answers`), все ключи кроме `lead` необязательны:
   {"profile": "kimi-team",
@@ -46,6 +48,9 @@ CATALOG = SCRIPTS_DIR.parent / "references" / "models-catalog.json"
 _spec = importlib.util.spec_from_file_location("engine_config", SCRIPTS_DIR / "engine-config.py")
 ec = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ec)
+_spec = importlib.util.spec_from_file_location("lead_probe", SCRIPTS_DIR / "lead-probe.py")
+lp = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lp)
 
 # CLI → (движок в конфиге, хост, которому он соответствует). hosts — только среды, где может жить ведущий.
 CLIS = {
@@ -208,7 +213,60 @@ def discover_text(d):
         extra = ", ".join(x for x in (e["version"], lead, e["detail"]) if x)
         lines.append(f"{e['cli']}: {label}" + (f" ({extra})" if extra else "") + f"; моделей {len(e['models'])}")
     lines.append("источники: " + (", ".join(d["sources"]) or "нет"))
+    for p in d.get("lead_probes") or []:
+        lines.append(f"проба ведущего {p['host']}" + (f" / {p['model']}" if p["model"] else "")
+                     + f" (профиль {p['profile']}): {p['result']} {p['date']}")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ проба ведущего
+def lead_probes(cfg):
+    """Итоги проб ведущего из профилей конфига: [{profile, host, model, result, date, version}]."""
+    out = []
+    for name, prof in sorted(((cfg or {}).get("profiles") or {}).items()):
+        if not isinstance(prof, dict) or not isinstance(prof.get("lead_probe"), dict):
+            continue
+        lead, probe = prof.get("lead") or {}, prof["lead_probe"]
+        out.append({"profile": name, "host": lead.get("host", ""), "model": lead.get("model", ""),
+                    "result": probe.get("result", ""), "date": probe.get("date", ""),
+                    "version": probe.get("version", "")})
+    return out
+
+
+def probe_for(cfg, host, model):
+    """Свежайший итог пробы для пары «среда, модель» или None."""
+    found = [p for p in lead_probes(cfg) if p["host"] == host and p["model"] == (model or "")]
+    return max(found, key=lambda p: p["date"]) if found else None
+
+
+def probe_mark(cfg, host, model):
+    """Пометка ведущего для диалога (п. 4.4, вопрос 1)."""
+    if host == "claude-code":
+        return "свой протокол 1.1.x"
+    p = probe_for(cfg, host, model)
+    if not p:
+        return "не проверена как ведущий"
+    if p["result"] == "passed":
+        return f"проверена как ведущий {p['date']}"
+    return f"проба ведущего {p['date']}: {p['result']}"
+
+
+def run_lead_probe(cfg, name, timeout=1800, root=None, keep=None):
+    prof = (cfg.get("profiles") or {}).get(name)
+    if not isinstance(prof, dict) or not isinstance(prof.get("lead"), dict):
+        raise SetupError(f"профиль {name} не найден или без ведущего")
+    lead = prof["lead"]
+    try:
+        r = lp.probe(lead.get("host", ""), lead.get("model"), root=root, timeout=timeout, keep=keep, base_profile=prof)
+    except lp.ProbeError as exc:
+        raise SetupError(str(exc))
+    stored = {"result": r["result"], "date": r["date"], "version": r["version"], "model": r["model"],
+              "seconds": r["seconds"]}
+    if r["failed"]:
+        stored["detail"] = r["checks"][r["failed"]]["detail"]
+    if r.get("notes"):
+        stored["notes"] = r["notes"]
+    return r, stored
 
 
 # ------------------------------------------------------------------ ответы → профиль
@@ -308,6 +366,10 @@ def read_target(path):
 
 def candidate_config(existing, name, profile, activate):
     cfg = json.loads(json.dumps(existing))
+    old = ((cfg.get("profiles") or {}).get(name) or {})
+    if isinstance(old, dict) and old.get("lead") == profile["lead"] and old.get("lead_probe") \
+            and "lead_probe" not in profile:
+        profile = dict(profile, lead_probe=old["lead_probe"])   # тот же ведущий — итог пробы остаётся в силе
     cfg.setdefault("profiles", {})[name] = profile
     cfg.setdefault("fallback", "host")
     if activate:
@@ -359,6 +421,13 @@ def build_plan(answers, d, existing):
         problems.append(f"ведущий: {host} не годится в ведущие")
     if entry and entry["models"] and profile["lead"].get("model") and profile["lead"]["model"] not in entry["models"]:
         notes.append(f"⚙️ модель ведущего {profile['lead']['model']} не из списка {entry['cli']} (проверьте имя)")
+    if host != "claude-code" and LEAD_CAPABLE.get(host):
+        p = probe_for(cfg, host, profile["lead"].get("model"))
+        if not p:
+            notes.append(f"⚙️ ведущий не проверен пробой: supertick-setup.py lead-probe {name} (несколько минут вызовов модели)")
+        elif p["result"] != "passed":
+            notes.append(f"⚙️ проба ведущего {p['date']}: {p['result']} — модель может не удержать протокол "
+                         "(проба ничего не запрещает)")
     return {"profile": name, "activate": activate, "lead": profile["lead"], "rows": plan_rows(cfg, name, host),
             "problems": problems, "notes": notes, "warnings": [w["message"] + f" [{w['path']}]" for w in warnings],
             "launch": launch_command(profile["lead"]), "config": cfg, "profile_body": profile}
@@ -418,16 +487,16 @@ def pick_engine(ask, d, question):
     return got
 
 
-def dialog(d, ask, say, current_host=None):
+def dialog(d, ask, say, current_host=None, cfg=None):
     leads = [e for e in d["clis"] if e["host"] and e["lead_capable"] is not False and e["state"] in ("responds", "unchecked")]
     if not leads:
         raise SetupError("нет ни одного CLI, который может быть ведущим: установите и войдите хотя бы в один")
     opts = []
     for e in leads:
-        mark = "проверен как ведущий" if e["lead_capable"] else "не проверен как ведущий"
+        model = e["models"][0] if e["models"] else ""
+        mark = probe_mark(cfg, e["host"], model) if e["lead_capable"] else "среда не проверена спайком"
         here = ", текущий сеанс" if e["host"] == current_host else ", нужен перезапуск"
-        opts.append((f"{e['host']} / {e['models'][0] if e['models'] else 'по умолчанию'} ({mark}{here})",
-                     {"host": e["host"], "model": e["models"][0] if e["models"] else ""}))
+        opts.append((f"{e['host']} / {model or 'по умолчанию'} ({mark}{here})", {"host": e["host"], "model": model}))
     lead = choose(ask, "Кто ведущий?", opts)
     if isinstance(lead, tuple):
         host, _, model = lead[1].partition("/")
@@ -475,9 +544,16 @@ def public(plan):
 def main(argv):
     top = argparse.ArgumentParser(description="Подключение supertick: поиск CLI, диалог, профиль")
     sub = top.add_subparsers(dest="cmd", required=True)
-    for name in ("discover", "plan", "apply", "setup", "launch"):
+    for name in ("discover", "plan", "apply", "setup", "launch", "lead-probe"):
         p = sub.add_parser(name)
         p.add_argument("--json", action="store_true")
+        if name == "lead-probe":
+            p.add_argument("profile")
+            p.add_argument("--timeout", type=int, default=1800, help="сколько ждать ведущего, с")
+            p.add_argument("--root", help="корень набора (по умолчанию $SUPERTICK_ROOT или установленный для среды)")
+            p.add_argument("--keep", help="оставить стенд в этом пустом каталоге")
+            p.add_argument("--no-write", action="store_true", help="не записывать итог в профиль")
+            continue
         if name != "launch":
             p.add_argument("--no-probe", action="store_true", help="не вызывать CLI: считать установленные доступными")
             p.add_argument("--probe-timeout", type=int, default=90)
@@ -499,12 +575,33 @@ def main(argv):
             emit({"profile": args.profile, "lead": prof["lead"], "command": cmd}, args.json, cmd or
                  f"для хоста {prof['lead']['host']} команда запуска не известна")
             return 0
+        if args.cmd == "lead-probe":
+            path = target_path()
+            existing = read_target(path)
+            cfg, _, _ = ec.load_config(ec.config_paths())
+            r, stored = run_lead_probe(cfg, args.profile, args.timeout, args.root, args.keep)
+            written = ""
+            if not args.no_write:
+                if args.profile not in (existing.get("profiles") or {}):
+                    raise SetupError(f"профиль {args.profile} не в {path}: итог не записан (--no-write, чтобы только посмотреть)")
+                new = json.loads(json.dumps(existing))
+                new["profiles"][args.profile]["lead_probe"] = stored
+                write_atomic(path, new)
+                written = str(path)
+            emit(dict(r, profile=args.profile, written=written), args.json,
+                 lp.text(r) + (f"\nзаписано в профиль {args.profile}: {path}" if written else ""))
+            return 0 if r["result"] == "passed" else 1
         current = None
         try:
             current = ec.detect_host(args.host)[0]
         except ValueError:
             pass
         d = discover(probe=not args.no_probe, probe_timeout=args.probe_timeout, current_host=current)
+        try:
+            known, _, _ = ec.load_config(ec.config_paths())
+        except Exception:   # конфиг пользователя не мешает поиску CLI
+            known = {}
+        d["lead_probes"] = lead_probes(known)
         if args.cmd == "discover":
             emit(d, args.json, discover_text(d))
             return 0
@@ -514,7 +611,7 @@ def main(argv):
             if not sys.stdin.isatty():
                 raise SetupError("диалогу нужен терминал; без него — `apply --answers ФАЙЛ`")
             print(discover_text(d))
-            answers = dialog(d, input, print, current)
+            answers = dialog(d, input, print, current, existing)
         else:
             answers = load_answers(args.answers)
         plan = build_plan(answers, d, existing)
@@ -533,6 +630,14 @@ def main(argv):
         result = dict(public(plan), written=str(path), backup=backup)
         emit(result, args.json, plan_text(plan) + f"\nзаписано: {path}" + (f" (копия {backup})" if backup else "")
              + (f"\nзапуск: {plan['launch']}" if plan["launch"] else ""))
+        host = plan["lead"]["host"]
+        if args.cmd == "setup" and host in lp.HOST_ARGV and not probe_for(plan["config"], host, plan["lead"].get("model")):
+            if input("Проверить ведущего пробой (несколько минут вызовов модели)? [y/N] ").strip().lower() in ("y", "д", "yes", "да"):
+                r, stored = run_lead_probe(plan["config"], plan["profile"])
+                cfg = read_target(path)
+                cfg["profiles"][plan["profile"]]["lead_probe"] = stored
+                write_atomic(path, cfg)
+                print(lp.text(r))
         return 0
     except SetupError as exc:
         print(f"supertick-setup: {exc}", file=sys.stderr)
