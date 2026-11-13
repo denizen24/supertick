@@ -183,6 +183,8 @@ def main():
     sh("tick")
     if BREAK == "tests":
         raw(f"cd {REPO} && python3 -m unittest 2>&1 | tail -1")
+    stopped = sh("wait-stop")
+    assert "supervisor-wait:" in stopped.stdout, stopped.stdout + stopped.stderr
     check = sh("git-check")
     assert ("GIT GUARD CHANGED" in check.stdout) == (BREAK == "hook"), check.stdout
     for rec in TRANSCRIPT:

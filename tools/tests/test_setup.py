@@ -170,6 +170,32 @@ class Apply(unittest.TestCase):
                               "--config", str(self.env.config()), "--json"], capture_output=True, text=True)
         self.assertTrue(json.loads(run.stdout)["lead_matches"])
 
+    def test_table_matches_runtime_over_legacy_roles(self):
+        """V1 (R2): «всё на модели ведущего» при ролях на cursor в прежнем конфиге — таблица диалога и шаг 0b
+        прогона говорят одно и то же: все роли родные, cursor не всплывает."""
+        self.env.legacy.parent.mkdir(parents=True)
+        self.env.legacy.write_text('{"enabled": true, "roles": {"coder": "cursor", "unified-reviewer": "cursor", '
+                                   '"second-reviewer": "cursor"}}\n', encoding="utf-8")
+        res = self.apply({"lead": KIMI_LEAD, "layout": "all-on-lead"})
+        self.assertEqual(res.returncode, 0, res.stderr + res.stdout)
+        rows = {r["role"]: r["engine"] for r in json.loads(res.stdout)["rows"]}
+        self.assertEqual(set(rows.values()), {"native"}, rows)
+        engine_config = HERE.parents[1] / "core" / "scripts" / "engine-config.py"
+        run = subprocess.run([sys.executable, str(engine_config), "resolve", "--host", "kimi", "--json",
+                              "--available", "cursor-agent,kimi,codex"],
+                             capture_output=True, text=True, env=self.env.env)
+        table = json.loads(run.stdout)["table"]
+        self.assertNotIn("cursor", table.values(), table)
+        self.assertEqual(table["second-reviewer"], "none")
+
+    def test_codex_null_roles_go_to_the_codex_engine(self):
+        """На Codex «родной» — движок codex с моделью ведущего (H4), и null в профиле этого не ломает."""
+        res = self.apply({"lead": {"host": "codex", "model": "gpt-5.6-sol"}, "layout": "all-on-lead"})
+        self.assertEqual(res.returncode, 0, res.stderr + res.stdout)
+        rows = {r["role"]: (r["engine"], r["model"]) for r in json.loads(res.stdout)["rows"]}
+        self.assertEqual(rows["coder"], ("codex", "gpt-5.6-sol"))
+        self.assertEqual(rows["unified-reviewer"], ("codex", "gpt-5.6-sol"))
+
     def test_agent_teams_json_is_never_touched(self):
         self.env.legacy.parent.mkdir(parents=True)
         self.env.legacy.write_text('{"enabled": true, "roles": {"coder": "cursor"}}\n', encoding="utf-8")
@@ -240,10 +266,11 @@ class Apply(unittest.TestCase):
         res = env.run("apply", "--answers", answers_file(env, {"lead": KIMI_LEAD, "second_opinion": {"engine": "kimi"}}))
         self.assertEqual(res.returncode, 2)
 
-    def test_second_opinion_off_leaves_no_key(self):
+    def test_second_opinion_off_is_written_as_null(self):
+        """V1: «выключено» — явный null, иначе второе мнение из прежнего конфига включилось бы само."""
         self.assertEqual(self.apply({"lead": KIMI_LEAD, "second_opinion": "off"}).returncode, 0)
         cfg = json.loads(self.env.config().read_text(encoding="utf-8"))
-        self.assertNotIn("second-reviewer", cfg["profiles"]["default"]["roles"])
+        self.assertIsNone(cfg["profiles"]["default"]["roles"]["second-reviewer"])
 
     def test_groups_expand_to_roles(self):
         res = self.apply({"lead": KIMI_LEAD, "layout": "groups", "groups": {
@@ -251,8 +278,8 @@ class Apply(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stderr + res.stdout)
         roles = json.loads(self.env.config().read_text(encoding="utf-8"))["profiles"]["default"]["roles"]
         self.assertEqual(roles["coder"]["engine"], "codex")
-        self.assertEqual({r for r, s in roles.items() if s["engine"] == "cursor"}, set(ss.GROUPS["architects"]))
-        self.assertNotIn("spec-verifier", roles)
+        self.assertEqual({r for r, s in roles.items() if s and s["engine"] == "cursor"}, set(ss.GROUPS["architects"]))
+        self.assertIsNone(roles["spec-verifier"])   # группа без значения — родной исполнитель, записан явно
 
     def test_unknown_group_is_rejected(self):
         self.assertEqual(self.apply({"lead": KIMI_LEAD, "layout": "groups", "groups": {"bosses": None}}).returncode, 2)

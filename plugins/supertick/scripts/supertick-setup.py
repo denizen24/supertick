@@ -339,6 +339,15 @@ def build_profile(answers, d):
         spec = role_assignment(second, d, "second_opinion")
         if spec:
             roles["second-reviewer"] = spec
+    # Профиль полный: каждая роль без назначения записана null («родной исполнитель среды»). Иначе роли
+    # из прежнего конфига 1.1.x (профиль накладывается поверх них) исполнялись бы не так, как показал диалог.
+    host = lead_spec["host"]
+    for role, reg in ec.ROLES.items():
+        if role == "lead" or role in roles or reg.get("only_on") and host not in reg["only_on"]:
+            continue
+        if role == "web-researcher" and host != "claude-code":
+            continue   # вне Claude Code поиск только у движка с живым поиском — родного варианта нет
+        roles[role] = None
     profile = {"lead": lead_spec, "roles": roles, "confirmed_at": date.today().isoformat(),
                "fingerprint": d["fingerprint"],
                "sources": d["sources"], "installed": sorted(e["cli"] for e in d["clis"] if e["installed"])}
@@ -377,21 +386,27 @@ def candidate_config(existing, name, profile, activate):
     return cfg
 
 
-def plan_rows(cfg, name, host):
-    """Таблица «роль → движок → модель → доступ» активного состояния профиля."""
-    prof = cfg["profiles"][name]
-    roles = ec.effective_roles(cfg, prof)
+def plan_rows(cfg, name, host, res):
+    """Таблица «роль → движок → модель → доступ» — то, что исполнит прогон: из того же resolve, что шаг 0b."""
+    roles = ec.effective_roles(cfg, cfg["profiles"][name])
+    native = ec.HOSTS[host]["native"]
     rows = []
     for role in ec.ROLES:
-        if role in ("lead", "browser-verifier", "acceptance-checker") and role not in roles:
+        if role == "lead" or ec.ROLES[role].get("only_on") and host not in ec.ROLES[role]["only_on"]:
             continue
-        spec = roles.get(role, {})
-        engine = spec.get("engine")
-        access, _ = ec.role_access(role, spec)
-        rows.append({"role": role, "engine": engine or ec.HOSTS[host]["native"],
-                     "model": spec.get("model", ""), "access": "запись" if access == "write" else "чтение",
-                     "native": engine is None})
+        detail = (res.get("detail") or {}).get(role) or {"engine": native, "model": ""}
+        if detail["engine"] == "none":
+            continue
+        access, _ = ec.role_access(role, roles.get(role) or {})
+        rows.append({"role": role, "engine": detail["engine"], "model": detail.get("model", ""),
+                     "access": "запись" if access == "write" else "чтение", "native": detail["engine"] == native})
     return rows
+
+
+def runtime_config(cfg):
+    """Конфиг так, как его прочтёт прогон: профиль поверх ролей прежнего конфига 1.1.x (LEGACY_CONFIG)."""
+    legacy, _, _ = ec.load_config([Path(ec.LEGACY_CONFIG).expanduser()])
+    return ec.merge(cfg, legacy)
 
 
 def build_plan(answers, d, existing):
@@ -403,12 +418,12 @@ def build_plan(answers, d, existing):
     # назначенный движок должен быть подключён
     ready = usable_engines(d)
     for role, spec in profile["roles"].items():
-        if spec["engine"] not in ready:
+        if spec and spec["engine"] not in ready:
             problems.append(f"роль {role}: движок {spec['engine']} не подключён (нет CLI, входа или пресета)")
     host = profile["lead"]["host"]
     avail = {e["cli"] for e in d["clis"] if e["installed"]}
     avail |= {ec.PRESETS[e["engine"]]["binary"] for e in d["clis"] if e["installed"] and e["engine_preset"]}
-    res = ec.resolve(cfg, host, avail, profile=name, have_config=True)
+    res = ec.resolve(runtime_config(cfg), host, avail, profile=name, have_config=True)
     notes = list(res["feed"])
     entry = next((e for e in d["clis"] if e["host"] == host), None)
     if entry is None or not entry["installed"]:
@@ -428,7 +443,7 @@ def build_plan(answers, d, existing):
         elif p["result"] != "passed":
             notes.append(f"⚙️ проба ведущего {p['date']}: {p['result']} — модель может не удержать протокол "
                          "(проба ничего не запрещает)")
-    return {"profile": name, "activate": activate, "lead": profile["lead"], "rows": plan_rows(cfg, name, host),
+    return {"profile": name, "activate": activate, "lead": profile["lead"], "rows": plan_rows(runtime_config(cfg), name, host, res),
             "problems": problems, "notes": notes, "warnings": [w["message"] + f" [{w['path']}]" for w in warnings],
             "launch": launch_command(profile["lead"]), "config": cfg, "profile_body": profile}
 

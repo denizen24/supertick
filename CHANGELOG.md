@@ -139,6 +139,33 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### V1 (2.0.0-alpha acceptance)
+
+- Full suite before V1: 52 script tests and all tool tests green; the Claude Code build still matches
+  the committed plugin.
+- New `tools/replay_tick.py` and `docs/trials/2.0-replay.md` (acceptance item 3): the 2.0 and 1.1.1
+  ticks run side by side on time slices of 22 past runs (files with mtime up to the moment, ledger lines
+  up to the moment by `ts`, mutable files in their final form, no read marks). 2576 P0–P2 events from
+  1.1.1, zero new ones from 2.0, zero lost, zero text-only differences.
+- Setup writes a complete profile: every role without an assignment is written as `null` (the host's
+  native executor), and "second opinion off" as `second-reviewer: null`. Before, an empty `roles` let
+  the 1.1.x roles from `agent-teams.json` (the profile overlays them) take over at run time: the dialog
+  showed "all native", the run used cursor. The `plan` table is now built from the same resolve as step
+  0b, over the legacy file. `engine-config.py validate` accepts `null` roles; on Codex and on hosts
+  without subagents a `null` role still goes to the host engine with the lead's model; a `null`
+  `second-reviewer` is off without a warning.
+- `supervisor-wait.sh`, `--mode shared` only: one wait per run. A new wait stops the other waits of the
+  same run (found by command line, never its own `bash -c` wrapper or a wait of another run) and waits
+  for them to exit; `--stop` stops them at the end (new `lead:wait-stop` in phase 3, step 8). In the R2
+  live run the Kimi lead left a forgotten background wait, and `kimi -p` does not exit while a
+  background task lives, so the run hung until the timeout with no summary. Claude Code mode unchanged.
+- LEAD.md: phase 3 verifiers as a table (`## Build & Types` and `## Tests` only to `ci-verifier`, never
+  to the read-only `acceptance-checker` — H4 got BROKEN on `.pyc`); a task's acceptance criteria are
+  only its own checks; the lead may drop an out-of-scope finding (not CRITICAL, not `[security]`) before
+  round 3 by a DECISIONS.md entry and a `DECISION: … Re-check.` continuation of the same reviewer
+  (the reviewer brief knows it); the final summary takes the test result from the ci-verifier report
+  instead of running tests itself.
+
 ## 1.1.1 — 2026-10-28
 
 Fixes from the live runs of 22.10.2026 (feature-tariff-links-506, feature-calendar-click-510).

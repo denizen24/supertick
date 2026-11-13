@@ -500,6 +500,8 @@ def resolve(cfg, host, available, engines_off=False, profile=None, load_warnings
             warns.append({"code": "role_disabled_on_host", "role": role, "detail": host})
             continue
         forced = reg.get("native_on") == "all" or host in (reg.get("native_on") or [])
+        if is_native(engine) and not forced and (not h["subagents"] or h.get("roles_on_engine")):
+            continue   # «родной» там, где роли идут движком хоста: решает правило 1 (модель ведущего)
         if forced and not is_native(engine):
             warns.append({"code": "assignment_ignored", "role": role, "engine": engine})
             continue
@@ -537,7 +539,7 @@ def resolve(cfg, host, available, engines_off=False, profile=None, load_warnings
     sec_engine = roles.get("second-reviewer", {}).get("engine") if "second-reviewer" in roles else None
     sec_named = "second-reviewer" in table and not (ROLES["second-reviewer"].get("only_on"))
     udet = details.get("unified-reviewer", {"engine": native, "model": ""})
-    if not sec_named or not usable(sec_engine):
+    if not sec_named or sec_engine is None or not usable(sec_engine):   # null — второе мнение выключено
         table["second-reviewer"], details["second-reviewer"] = "none", {"engine": "none", "model": ""}
     else:
         sdet = detail_of(sec_engine, roles["second-reviewer"])
@@ -660,6 +662,8 @@ def validate(cfg):
             return
         for role, raw in roles.items():
             path = f"{prefix}.{role}"
+            if raw is None:   # null — родной исполнитель среды (так пишет профиль диалог)
+                continue
             if not isinstance(raw, (str, dict)):
                 err(path, "type", "нужна строка-движок или объект")
                 continue
