@@ -143,6 +143,8 @@
 
 - Full suite before V1: 52 script tests and all tool tests green; the Claude Code build still matches
   the committed plugin.
+- Acceptance runs R1, R2, R3, R5, R6 passed on the bench (`docs/trials/2.0-alpha-runs.md`); the final
+  suite after the V1 fixes: 52 script tests, 368 tool tests (5 skipped) green.
 - New `tools/replay_tick.py` and `docs/trials/2.0-replay.md` (acceptance item 3): the 2.0 and 1.1.1
   ticks run side by side on time slices of 22 past runs (files with mtime up to the moment, ledger lines
   up to the moment by `ts`, mutable files in their final form, no read marks). 2576 P0–P2 events from
