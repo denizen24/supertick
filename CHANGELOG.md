@@ -139,6 +139,12 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### Merge to `main`
+
+- The Claude Code plugin and the marketplace entry carry `2.0.0-beta.1`, like the Kimi, Codex and OpenCode bundles:
+  Claude Code caches plugins by version, so the new build (2.0 scripts under the unchanged 1.1.x texts) reaches it
+  only with a new version. Claude Code behaviour is still that of 1.1.1.
+
 ### X2 — run mirror `state/run.json`
 
 - In `--mode shared` the tick writes `state/run.json` on every pass, atomically and only when the content changes:
