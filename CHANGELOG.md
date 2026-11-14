@@ -139,6 +139,16 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### X2 — run mirror `state/run.json`
+
+- In `--mode shared` the tick writes `state/run.json` on every pass, atomically and only when the content changes:
+  phase, complexity, budgets, host, tasks (status, files, planned agents, coder, reviewer, commits), agents (role,
+  access, engine, provider, model from the ledger), engine calls, `revision` (SHA-256 without itself). Nobody else
+  writes it; the lead and the roles do not read it. Claude Code mode writes no mirror. Schema — `docs/run-json.md`.
+- `supervisor-tick.py validate-run <run>` catches the typical corruptions (not JSON, keys and schema, a hand edit
+  that breaks the revision, tasks out of step with PLAN.md, broken agents and engine calls, secret-like keys);
+  `postrun-check` runs it when the mirror exists.
+
 ### X3 — `busy` on macOS
 
 - The tick's `busy` rule (a test or build run under the repository root downgrades `silent_too_long` to P3) works on

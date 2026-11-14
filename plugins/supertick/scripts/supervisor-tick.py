@@ -82,6 +82,10 @@ run-engine.sh; свою карточку он не ведёт, её заводи
   supervisor-tick.py budgets <SIMPLE|MEDIUM|COMPLEX> [--budget=enforce|off|a/r/c]   — раздел ## Budgets для state.md
   supervisor-tick.py plan <run-dir>            — planned_agents против max_agents (2 — превышение в enforce)
   supervisor-tick.py postrun-check <run-dir> [--root <репозиторий>]   — сверки перед сводкой (1 — есть находки)
+  supervisor-tick.py validate-run <run-dir>    — проверка зеркала state/run.json (1 — есть проблемы)
+
+Зеркало state/run.json (X2): в режиме --mode shared тик пишет его на каждом проходе, атомарно и только при
+изменении содержимого (revision — SHA-256 без поля revision). Схема — docs/run-json.md.
 
 Бюджеты (121-567, X1; идея — dsh-supertick, см. NOTICE): только при разделе `## Budgets` в state.md. Режим
 `observe` (по умолчанию) — превышения P3 budget_note; `enforce` — P1 agent_budget_exceeded, concurrency_exceeded,
@@ -89,6 +93,7 @@ review_rounds_exceeded, fanout_planned_exceeded; `off` — молчат. Каж�
 P0 read_agent_owns_files — участник с `access: read` закоммитил (поле commits карточки или отчёт COMMITTED) —
 нарушение контракта, в любом режиме. Пороги — docs/budgets.md.
 """
+import hashlib
 import json
 import os
 import re
@@ -137,7 +142,7 @@ def plan_tasks(run_dir):
         head = re.match(r"^## Task\s+([^:\s]+)\s*:", line)
         if head:
             current = head.group(1)
-            tasks[current] = {"status": "", "files": []}
+            tasks[current] = {"status": "", "files": [], "title": line.split(":", 1)[1].strip()}
             continue
         if current is None:
             continue
@@ -588,6 +593,162 @@ def read_agent_commits(run_dir, runs):
     return found
 
 
+# ---------------------------------------------------------------- зеркало state/run.json (121-567, X2)
+RUN_JSON_SCHEMA = 1
+RUN_KEYS = ("schema", "name", "phase", "complexity", "budgets", "host", "tasks", "agents", "engines", "revision")
+TASK_STATUS = re.compile(r"^(TODO|IN_PROGRESS|IN_REVIEW|ACCEPTING|REOPENED|DONE|BLOCKED|CANCELLED)\b")
+ENGINE_STATUS = ("running", "done", "failed")
+SECRET_KEY = re.compile(r"(api[_-]?key|token|secret|password|authorization|mail_body|letter)", re.I)
+
+
+def state_field(run_dir, name):
+    path = run_dir / "state.md"
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    m = re.search(rf"^## {re.escape(name)}:\s*(.+)$", text, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def coder_commits(run_dir, task):
+    shas = []
+    for f in sorted((run_dir / "reports").glob(f"task{task}-coder*.md")) if (run_dir / "reports").is_dir() else []:
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^\s*COMMITS?:\s*(.+)$", line)
+            if m:
+                shas += [x for x in re.findall(r"\b[0-9a-f]{7,40}\b", m.group(1)) if x not in shas]
+    return shas
+
+
+def ledger_records(run_dir):
+    out = []
+    path = run_dir / "ledger.jsonl"
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if path.exists() else []:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict) and rec.get("role"):
+            out.append(rec)
+    return out
+
+
+def run_mirror(run_dir):
+    """Содержимое state/run.json (без ревизии): только факты из файлов прогона, без ключей и текстов писем."""
+    tasks = plan_tasks(run_dir)
+    runs = read_runs(run_dir)
+    ledger = ledger_records(run_dir)
+    calls = {}
+    for rec in ledger:   # последний статус каждого вызова (роль, метка)
+        key = (str(rec["role"]), str(rec.get("label", "")))
+        status = {"launch": "running", "done": "done", "failed": "failed"}.get(rec.get("event"))
+        if status:
+            calls[key] = {"role": key[0], "label": key[1], "status": status,
+                          "engine": rec.get("engine", "") or calls.get(key, {}).get("engine", ""),
+                          "model": rec.get("model", "") or calls.get(key, {}).get("model", "")}
+    by_role = {}
+    for call in calls.values():
+        by_role[call["role"]] = call
+    agents = []
+    for name, card in sorted(runs.items()):
+        call = by_role.get(name, {})
+        engine = call.get("engine") or ("native" if card.get("executor") == "native" else "")
+        model = call.get("model", "")
+        agents.append({"name": name, "role": str(card.get("role", "")), "task": str(card.get("task", "") or ""),
+                       "status": str(card.get("status", "")), "access": str(card.get("access", "")),
+                       "engine": engine, "provider": model.split("/", 1)[0] if "/" in model else engine,
+                       "model": model, "last_event_at": str(card.get("lastEventAt", ""))})
+    task_list = []
+    for tid, info in tasks.items():
+        role_of = {str(c.get("role", "")): n for n, c in runs.items() if str(c.get("task", "")) == tid}
+        task_list.append({"id": tid, "title": info.get("title", ""), "status": info["status"], "files": info["files"],
+                          "planned_agents": info.get("planned"), "coder": role_of.get("coder", ""),
+                          "reviewer": role_of.get("unified-reviewer", ""), "commits": coder_commits(run_dir, tid)})
+    return {"schema": RUN_JSON_SCHEMA, "name": state_field(run_dir, "Team Name") or run_dir.name,
+            "phase": state_phase(run_dir), "complexity": state_field(run_dir, "Complexity"),
+            "budgets": state_budgets(run_dir), "host": state_field(run_dir, "Host"), "tasks": task_list,
+            "agents": agents, "engines": [{"role": c["role"], "label": c["label"], "status": c["status"]}
+                                          for c in calls.values()]}
+
+
+def mirror_revision(content):
+    body = {k: v for k, v in content.items() if k != "revision"}
+    return "sha256:" + hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def write_mirror(run_dir):
+    """Пишет state/run.json атомарно и только если содержимое изменилось. True — файл переписан."""
+    content = run_mirror(run_dir)
+    content["revision"] = mirror_revision(content)
+    path = run_dir / "state" / "run.json"
+    old = read_json(path, None)
+    if isinstance(old, dict) and old.get("revision") == content["revision"]:
+        return False
+    path.parent.mkdir(exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(content, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+    return True
+
+
+def validate_run(run_dir):
+    """Проблемы state/run.json (пусто — валиден): не JSON; схема и ключи; ревизия не сходится с содержимым;
+    задачи расходятся с PLAN.md; исполнители и вызовы с битыми полями; ключи-секреты."""
+    run_dir = Path(run_dir)
+    path = run_dir / "state" / "run.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return ["нет файла state/run.json"]
+    except ValueError as exc:
+        return [f"не JSON: {exc}"]
+    if not isinstance(data, dict):
+        return ["не объект JSON"]
+    problems = []
+    missing = [k for k in RUN_KEYS if k not in data]
+    if missing:
+        problems.append("нет ключей: " + ", ".join(missing))
+    if data.get("schema") != RUN_JSON_SCHEMA:
+        problems.append(f"schema {data.get('schema')!r}, ждём {RUN_JSON_SCHEMA}")
+    if data.get("revision") != mirror_revision(data):
+        problems.append("revision не сходится с содержимым (файл правили не тиком)")
+    tasks = data.get("tasks") if isinstance(data.get("tasks"), list) else []
+    if not isinstance(data.get("tasks"), list):
+        problems.append("tasks — не список")
+    ids = [t.get("id") for t in tasks if isinstance(t, dict)]
+    if len(ids) != len(set(ids)) or len(ids) != len(tasks):
+        problems.append("tasks: повторы id или записи без id")
+    plan = plan_tasks(run_dir)
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        if not TASK_STATUS.match(str(t.get("status", ""))):
+            problems.append(f"task {t.get('id')}: статус {t.get('status')!r} не из списка")
+        if t.get("id") in plan and plan[t["id"]]["status"] != t.get("status"):
+            problems.append(f"task {t.get('id')}: статус {t.get('status')!r}, а в PLAN.md {plan[t['id']]['status']!r}")
+    for tid in plan:
+        if tid not in ids:
+            problems.append(f"task {tid} есть в PLAN.md, а в зеркале нет")
+    for a in data.get("agents") or []:
+        if not isinstance(a, dict) or not a.get("name"):
+            problems.append("agents: запись без name")
+        elif a.get("task") and a["task"] not in ids:
+            problems.append(f"agent {a['name']}: задача {a['task']!r} не из tasks")
+    for e in data.get("engines") or []:
+        if not isinstance(e, dict) or e.get("status") not in ENGINE_STATUS or not e.get("role"):
+            problems.append(f"engines: битая запись {e!r}"[:160])
+
+    def keys(obj, where):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if SECRET_KEY.search(str(k)):
+                    problems.append(f"ключ {where}{k}: зеркалу нельзя держать ключи и тексты писем")
+                keys(v, f"{where}{k}.")
+        elif isinstance(obj, list):
+            for v in obj:
+                keys(v, where)
+    keys(data, "")
+    return problems
+
+
 def tick(run_dir, root=None, now=None, mode="claude"):
     if mode not in MODES:
         raise SystemExit(f"supervisor-tick: --mode ждёт одно из {', '.join(MODES)}")
@@ -784,6 +945,8 @@ def tick(run_dir, root=None, now=None, mode="claude"):
         snapshot["mode"] = "shared"
     if budgets is not None or budget_fired:
         snapshot["budget"] = budget_fired
+    if shared:
+        write_mirror(run_dir)   # зеркало для внешних наблюдателей; ведущий и роли его не читают
     (run_dir / "state").mkdir(exist_ok=True)
     tmp = memory_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -901,6 +1064,12 @@ def main(argv):
         found = postrun_check(rest[0], root)
         print("\n".join(["POSTRUN CHECK: находок нет"] if not found else [f"POSTRUN CHECK: находок {len(found)}"] + [f"- {f}" for f in found]))
         return 1 if found else 0
+    if argv and argv[0] == "validate-run":
+        if len(argv) != 2:
+            raise SystemExit("использование: supervisor-tick.py validate-run <run-dir>")
+        problems = validate_run(argv[1])
+        print("\n".join(["RUN JSON: валиден"] if not problems else [f"RUN JSON: проблем {len(problems)}"] + [f"- {p}" for p in problems]))
+        return 1 if problems else 0
     if argv and argv[0] == "ack":
         if len(argv) != 3:
             raise SystemExit("использование: supervisor-tick.py ack <run-dir> <файл письма>")
