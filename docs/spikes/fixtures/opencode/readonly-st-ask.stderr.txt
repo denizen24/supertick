@@ -1,0 +1,1 @@
+! permission requested: bash (echo hacked > c.txt, cat c.txt); auto-rejecting
