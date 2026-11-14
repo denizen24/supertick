@@ -139,6 +139,22 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### S0-OC and the `opencode` engine preset
+
+- Spike S0-OC (`docs/spikes/s0-hosts.md`, fixtures in `docs/spikes/fixtures/opencode/`): OpenCode 1.19.5 is L1 with
+  native subagents — own agent types with model and permissions, `task_id` resumes a subagent, parallel calls;
+  no background and no wake-up (the lead waits within its turn; `bash` timeout 120 s by default, no upper limit).
+  The 596-line lead probe passed 10/10 on two free models.
+- New engine preset `opencode`: `env OPENCODE_CONFIG=<engines>/opencode-supertick.json opencode run --format json
+  -m <model> --agent supertick-read|build -- <prompt>`, resume adds `-s <session>`. `--` is required (a brief starts
+  with `---`); the read agent (`engines/opencode-supertick.json`: edit, bash, webfetch, task denied) comes from our
+  own config file, nothing is written into the project; `--agent` is repeated on resume because a resumed session
+  falls back to `build` and writes (live check). Default model is a free one (`opencode/deepseek-v4.1-flash-free`):
+  Zen bills per token. Roles with commands take `build`.
+- `run-engine.sh` parses `opencode run --format json`: session from `sessionID`, reply from the text parts of the
+  last message that has text, a `type: error` line is a failure.
+- Setup lists OpenCode models from `opencode models` (free ones first) instead of the two-model fallback catalog.
+
 ### V1 (2.0.0-alpha acceptance)
 
 - Full suite before V1: 52 script tests and all tool tests green; the Claude Code build still matches

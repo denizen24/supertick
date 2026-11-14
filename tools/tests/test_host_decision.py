@@ -7,9 +7,11 @@
 """
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from test_scripts import tmpdir
@@ -133,21 +135,21 @@ class ThroughTheCommandLine(unittest.TestCase):
         self.assertEqual(got["action"], "stop")
 
     def test_a_cli_without_an_engine_preset_is_found_like_setup_finds_it(self):
-        """R6: у opencode нет пресета движка, и шаг 0 считал его исчезнувшим в каждом прогоне."""
+        """R6: у opencode не было пресета движка, и шаг 0 считал его исчезнувшим в каждом прогоне."""
         root = tmpdir(self)
         (root / "bin").mkdir()
         for cli in ("kimi", "opencode"):
             stub = root / "bin" / cli
             stub.write_text("#!/bin/sh\n", encoding="utf-8")
             stub.chmod(0o755)
-        self.assertNotIn("opencode", ec.PRESETS, "у opencode появился пресет — тест больше ничего не проверяет")
+        presets = {k: v for k, v in ec.PRESETS.items() if k != "opencode"}
+        with mock.patch.dict(os.environ, {"PATH": str(root / "bin"), "HOME": str(root)}), \
+                mock.patch.object(ec, "PRESETS", presets):
+            self.assertNotIn("opencode", ec.discover_available({}), "без пресета поиск по пресетам его не видит")
+            installed = ec.installed_clis({})
+        self.assertEqual(installed & {"kimi", "opencode"}, {"kimi", "opencode"})
         prof = {**PROFILE, "sources": ["kimi", "opencode"], "installed": ["kimi", "opencode"]}
-        path = root / "c.json"
-        path.write_text(json.dumps({"active_profile": "team", "profiles": {"team": prof}}), encoding="utf-8")
-        res = subprocess.run([sys.executable, str(SCRIPT), "host", "--json", "--config", str(path), "--host", "kimi"],
-                             capture_output=True, text=True, env={"PATH": str(root / 'bin'), "HOME": str(root)})
-        self.assertEqual(res.returncode, 0, res.stderr)
-        got = json.loads(res.stdout)
+        got = ec.host_decision({}, "kimi", "team", prof, "kimi-code/k3", installed)
         self.assertEqual((got["vanished"], got["new"]), ([], []))
 
     def test_profile_with_new_keys_passes_validate(self):

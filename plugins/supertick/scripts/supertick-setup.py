@@ -139,6 +139,17 @@ def models_of(cli):
                 return names, "cli-config"
         except (OSError, ValueError, KeyError, TypeError):
             pass
+    if cli == "opencode":   # каталог провайдеров opencode (Zen — 88 моделей 14.11.2026); бесплатные первыми
+        path = find_binary("opencode")
+        try:
+            out = subprocess.run([path, "models"], capture_output=True, text=True, timeout=30,
+                                 stdin=subprocess.DEVNULL) if path else None
+        except (OSError, subprocess.SubprocessError):
+            out = None
+        if out and out.returncode == 0:
+            names = [l.strip() for l in out.stdout.splitlines() if re.fullmatch(r"[\w.-]+/[\w.:/-]+", l.strip())]
+            if names:
+                return sorted(names, key=lambda n: not n.endswith("-free")), "cli-config"
     names = catalog_models(cli)
     preset = ec.PRESETS.get(CLIS[cli]["engine"], {}).get("model")
     if preset and preset not in names:

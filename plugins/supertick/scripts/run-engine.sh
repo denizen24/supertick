@@ -122,6 +122,29 @@ for line in reversed(text.splitlines()):
         result = obj.get("result")
         is_error = bool(obj.get("is_error"))
         break
+if result is None:   # opencode run --format json: события с sessionID; ответ — тексты последнего сообщения с текстом
+    events = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("sessionID"), str) and isinstance(obj.get("type"), str):
+            events.append(obj)
+    if events:
+        session = events[0]["sessionID"]
+        is_error = any(e["type"] == "error" for e in events)
+        texts = [e["part"] for e in events if e["type"] == "text" and isinstance(e.get("part"), dict)
+                 and isinstance(e["part"].get("text"), str) and e["part"]["text"].strip()]
+        if texts:
+            last = texts[-1].get("messageID")
+            result = "\n".join(p["text"] for p in texts if p.get("messageID") == last)
+        elif is_error:
+            err = next(e for e in events if e["type"] == "error").get("error") or {}
+            result = json.dumps(err, ensure_ascii=False)
 if result is None:   # JSONL без поля result (kimi 2.x --output-format stream-json): ответ — последняя реплика assistant
     for line in reversed(text.splitlines()):
         line = line.strip()

@@ -130,6 +130,15 @@ class Discover(unittest.TestCase):
         self.assertEqual(got["grok"]["models_source"], "catalog")
         self.assertIn("grok-4.6", got["grok"]["models"])
 
+    def test_opencode_models_come_from_its_catalog_with_free_ones_first(self):
+        stub = ('#!/bin/sh\ncase "$1" in --version) echo "1.19.5";; models) printf "opencode/claude-x\\n'
+                'opencode/glm-free\\nanthropic/claude-y\\n\\nnot a model line\\n";; *) echo ok;; esac\n')
+        got = {e["cli"]: e for e in Env(self, opencode=stub).discover("--no-probe")["clis"]}
+        self.assertEqual(got["opencode"]["models"], ["opencode/glm-free", "opencode/claude-x", "anthropic/claude-y"])
+        self.assertEqual(got["opencode"]["models_source"], "cli-config")
+        broken = {e["cli"]: e for e in Env(self, opencode=CRASH_STUB).discover("--no-probe")["clis"]}
+        self.assertEqual(broken["opencode"]["models_source"], "catalog")
+
 
 def answers_file(env, data):
     path = env.home / "answers.json"

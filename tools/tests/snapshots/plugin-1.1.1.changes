@@ -2,10 +2,11 @@
 # Один путь на строку (от plugins/supertick/), после пробела — причина и запись в CHANGELOG.
 # Пока файл пуст, сборка равна 1.1.1 побайтно. Путь отсюда, который на деле не расходится, — ошибка:
 # тест требует убрать устаревшее исключение.
-scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host; H4 — роли Codex на движке codex); в CHANGELOG
-scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; H4 — файл отчёта, созданный исполнителем, и есть отчёт (report_by); V1 — модель вызова в ledger, отчёт с первой строки-шапки (report_trimmed); в CHANGELOG
+scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host; H4 — роли Codex на движке codex; пресет opencode); в CHANGELOG
+scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; H4 — файл отчёта, созданный исполнителем, и есть отчёт (report_by); V1 — модель вызова в ledger, отчёт с первой строки-шапки (report_trimmed); разбор JSON opencode; в CHANGELOG
 scripts/mock-engine.py  новый скрипт F4: мок-движок (ok|fail|hang|no-session|is_error); в CHANGELOG
 engines/kimi-read.md  новый файл F4: профиль Kimi только на чтение для --agent-file; в CHANGELOG
+engines/opencode-supertick.json  новый файл F4 после S0-OC: агент opencode только на чтение (OPENCODE_CONFIG); в CHANGELOG
 scripts/supertick-setup.py  новый скрипт F5 (supertick-setup.py: discover, диалог, plan/apply, launch; H2 — lead-probe; V1 — полный профиль, роли без назначения как null); в CHANGELOG
 scripts/lead-probe.py  новый скрипт H2: проба пригодности ведущего (стенд, мок-сценарий, проверки по файлам; H4 — Codex и сторож .git); в CHANGELOG
 scripts/git-guard.py  новый скрипт H4: отпечаток .git/hooks и .git/config в начале прогона и сверка в конце (риск R11); в CHANGELOG

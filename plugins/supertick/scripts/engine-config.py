@@ -58,8 +58,8 @@ HOSTS = {
 
 # Пресеты. Шаблоны — списки аргументов; {prompt} раскрывает run-engine.sh, {engines} и {scripts} —
 # этот скрипт (каталоги набора). cursor, codex, grok — как в 1.1.1 (engines.md «Пресеты»);
-# kimi переписан под Kimi Code CLI 2.x, claude и mock — новые (F4). Все новые проверены живыми вызовами
-# 12.11.2026: ответ, продолжение помнит слово, режим чтения не пишет файлы.
+# kimi переписан под Kimi Code CLI 2.x, claude и mock — новые (F4), opencode — после спайка S0-OC. Все новые
+# проверены живыми вызовами (12.11 и 14.11.2026): ответ, продолжение помнит слово, режим чтения не пишет файлы.
 PRESETS = {
     "cursor": {
         "binary": "cursor-agent", "model": "cursor-grok-4.6-xhigh", "effort": "",
@@ -89,6 +89,17 @@ PRESETS = {
         "mode_flags": {"read": "--agent-file {engines}/kimi-read.md", "write": ""},
         "write": True,                 # запись — режим по умолчанию в -p
         "read_runs_commands": False,   # профиль чтения без shell: роли с командами берут запись
+    },
+    "opencode": {   # спайк S0-OC 14.11.2026: -- перед промптом, JSONL с sessionID; агент чтения из своего конфига
+        # (OPENCODE_CONFIG дополняет конфиг пользователя, в проект ничего не кладётся). --agent повторяется при
+        # продолжении: без него сессия идёт агентом build и пишет. Модель по умолчанию — бесплатная (Zen — за токены)
+        "binary": "opencode", "model": "opencode/deepseek-v4.1-flash-free", "effort": "",
+        "cmd": ["env", "OPENCODE_CONFIG={engines}/opencode-supertick.json", "opencode", "run", "--format", "json",
+                "-m", "{model}", "{mode_flags}", "--", "{prompt}"],
+        "resume": ["env", "OPENCODE_CONFIG={engines}/opencode-supertick.json", "opencode", "run", "--format", "json",
+                   "-m", "{model}", "{mode_flags}", "-s", "{session}", "--", "{prompt}"],
+        "mode_flags": {"read": "--agent supertick-read", "write": "--agent build"},
+        "read_runs_commands": False,   # агент чтения без shell: роли с командами берут запись
     },
     "claude": {   # дочерний Claude Code без навыков, команд, MCP и пользовательских настроек (нет рекурсии)
         "binary": "claude", "model": "sonnet", "effort": "",
@@ -445,6 +456,12 @@ def discover_available(cfg):
     return {e["binary"] for e in engines if system_available(e["binary"])}
 
 
+def installed_clis(cfg):
+    """Бинари для шага 0: пресеты и движки конфига, плюс все CLI, которые знает setup. CLI без пресета движка
+    иначе «исчезал» из каждого профиля (R6, 121-567 V1: так было с opencode до его пресета)."""
+    return discover_available(cfg) | {b for b in CLI_BINARIES if system_available(b)}
+
+
 def resolve(cfg, host, available, engines_off=False, profile=None, load_warnings=(), have_config=True):
     """Шаг 0b. Словарь: stop/reason, table, detail, warnings (коды), feed, summary_line, host, level, profile."""
     h = HOSTS[host]
@@ -764,10 +781,8 @@ def main(argv):
                 match = lead.get("host") == host and (not args.model or not lead.get("model") or lead["model"] == args.model)
             data = {"host": host, "source": source, "level": HOSTS[host]["level"],
                     "profile": name if prof is not None else None, "profile_lead": lead, "lead_matches": match}
-            # CLI ищутся как в setup (все CLI_BINARIES), а не только бинари пресетов: у opencode пресета
-            # движка ещё нет, и он «исчезал» из каждого профиля (R6, 121-567 V1)
             avail = ({b for b in args.available.split(",") if b} if args.available is not None
-                     else discover_available(cfg) | {b for b in CLI_BINARIES if system_available(b)})
+                     else installed_clis(cfg))
             data.update(host_decision(cfg, host, name, prof, args.model, avail, setup_flag=args.setup,
                                       interactive=not args.non_interactive))
             emit(data, args.json, "\n".join(f"{k}: {v}" for k, v in data.items()))
