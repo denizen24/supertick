@@ -62,7 +62,7 @@ CLIS = {
     "grok":         {"engine": "grok",     "host": None},
 }
 # Годится ли ведущим по итогам спайков S0: True — проверено, None — ещё не проверено, False — нет.
-LEAD_CAPABLE = {"claude-code": True, "kimi": True, "codex": True, "opencode": None}
+LEAD_CAPABLE = {"claude-code": True, "kimi": True, "codex": True, "opencode": True}
 
 PROBE_PROMPT = "Ответь одним словом: ok"
 PROBE_ARGV = {

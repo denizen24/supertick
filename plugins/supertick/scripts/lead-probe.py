@@ -62,8 +62,11 @@ PROMPT = ("Запусти навык supertick:team-feature (инструмен�
 PROMPTS = {   # у Codex нет инструмента Skill: навык зовётся по имени, файл SKILL.md он читает сам
     "codex": ("Используй навык supertick:team-feature с аргументами: «{feature}» {args}. "
               "Это проба ведущего: исполни протокол навыка до конца в этом ходе, вопросов не задавай."),
+    # у OpenCode пространств имён нет: навык называется supertick-team-feature
+    "opencode": ("Используй навык supertick-team-feature с аргументами: «{feature}» {args}. "
+                 "Это проба ведущего: исполни протокол навыка до конца в этом ходе, вопросов не задавай."),
 }
-# Среды, для которых проба есть: argv headless-запуска. OpenCode — с его адаптером (H3).
+# Среды, для которых проба есть: argv headless-запуска.
 HOST_ARGV = {
     "kimi": lambda bin_, model, prompt: [bin_] + (["-m", model] if model else []) +
                                        ["--output-format", "stream-json", "-p", prompt],
@@ -71,13 +74,16 @@ HOST_ARGV = {
     # исполнители `codex exec` из его shell не стартуют
     "codex": lambda bin_, model, prompt: [bin_, "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access"] +
                                         (["-m", model] if model else []) + ["--json", "--", prompt],
+    # -- обязателен (бриф с --- читается как ключ); агент — build, как у пользователя по умолчанию
+    "opencode": lambda bin_, model, prompt: [bin_, "run", "--format", "json"] + (["-m", model] if model else []) +
+                                           ["--", prompt],
 }
-HOST_BINARY = {"kimi": "kimi", "codex": "codex"}
+HOST_BINARY = {"kimi": "kimi", "codex": "codex", "opencode": "opencode"}
 INSTALLED_ROOT = {"kimi": "~/.kimi-code/plugins/managed/supertick",
+                  "opencode": "${OPENCODE_CONFIG_DIR:-~/.config/opencode}/skills/supertick-team-feature",
                   "codex": "${CODEX_HOME:-~/.codex}/plugins/cache/supertick-local/supertick/*"}
 NO_PROBE = {
     "claude-code": "ведущий Claude Code работает по своему протоколу 1.1.x; проба общего протокола к нему не относится",
-    "opencode": "проба ведущего OpenCode появится вместе с адаптером OpenCode (H3)",
 }
 MOCK_ROLES = ("coder", "unified-reviewer", "second-reviewer", "acceptance-checker", "spec-verifier", "ci-verifier",
               "risk-tester", "codebase-researcher", "reference-researcher", "web-researcher", "legacy-scanner",
@@ -237,6 +243,8 @@ def installed_root(host):
     """Корень набора, установленного в среду; у Codex каталог версии — берётся самый свежий."""
     pattern = INSTALLED_ROOT.get(host, "")
     pattern = pattern.replace("${CODEX_HOME:-~/.codex}", os.environ.get("CODEX_HOME") or "~/.codex")
+    pattern = pattern.replace("${OPENCODE_CONFIG_DIR:-~/.config/opencode}",
+                              os.environ.get("OPENCODE_CONFIG_DIR") or "~/.config/opencode")
     pattern = os.path.expanduser(pattern)
     if "*" not in pattern:
         return Path(pattern)
@@ -312,9 +320,20 @@ def run_host(paths, host, model, timeout, env=None, binary=None):
         raise ProbeError(f"{HOST_BINARY[host]} не найден в PATH")
     prompt = PROMPTS.get(host, PROMPT).format(feature=FEATURE, args=LEAD_ARGS)
     argv = HOST_ARGV[host](bin_, model, prompt)
+    env = probe_env(paths, env)
+    env["PWD"] = str(paths["repo"])   # OpenCode берёт каталог проекта из PWD, а не из cwd процесса (H3, живая проба №2)
+    if host == "opencode":
+        # корень пробы — копия набора вне проекта; в установке он лежит в каталоге навыка, который OpenCode
+        # открывает сам. Здесь то же разрешение даёт свой конфиг (иначе external_directory — отказ в opencode run)
+        oc = paths["probe"] / "opencode-probe.json"
+        # стенд целиком (корень, probe с мок-сценарием, repo): отказ в правах обрывает opencode run на месте, а
+        # служебные файлы мок-движка есть только в пробе
+        oc.write_text(json.dumps({"permission": {"external_directory": {f"{paths['stand']}/*": "allow"}}}),
+                      encoding="utf-8")
+        env["OPENCODE_CONFIG"] = str(oc)
     started = time.time()
     with open(paths["probe"] / "host.out", "wb") as out, open(paths["probe"] / "host.err", "wb") as err:
-        proc = subprocess.Popen(argv, cwd=str(paths["repo"]), env=probe_env(paths, env), stdout=out, stderr=err,
+        proc = subprocess.Popen(argv, cwd=str(paths["repo"]), env=env, stdout=out, stderr=err,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
         try:
             code = proc.wait(timeout=timeout)
@@ -398,10 +417,16 @@ def jsonl(path):
 
 
 def shell_commands(transcript):
-    """Команды shell ведущего из вывода среды: stream-json Kimi (tool_calls → arguments.command) и
-    JSONL Codex (item.completed с command_execution → command)."""
+    """Команды shell ведущего из вывода среды: stream-json Kimi (tool_calls → arguments.command), JSONL Codex
+    (item.completed с command_execution → command) и JSON OpenCode (tool_use, part.tool = bash → state.input.command)."""
     cmds = []
     for rec in jsonl(transcript):
+        part = rec.get("part") if isinstance(rec.get("part"), dict) else {}
+        if rec.get("type") == "tool_use" and part.get("tool") == "bash":
+            command = ((part.get("state") or {}).get("input") or {}).get("command")
+            if isinstance(command, str):
+                cmds.append(command)
+            continue
         item = rec.get("item") if isinstance(rec.get("item"), dict) else {}
         if rec.get("type") == "item.completed" and item.get("type") == "command_execution" \
                 and isinstance(item.get("command"), str):

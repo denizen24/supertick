@@ -1,0 +1,196 @@
+{
+  "host": "opencode",
+  "output": "build/opencode",
+  "note": "Сборка для OpenCode (121-567, H3): весь набор лежит внутри навыка skills/supertick-team-feature/ — каталоги навыков OpenCode открыты для чтения и ведущему, и субагентам (вне проекта иначе external_directory: ask, а в opencode run это отказ); рядом навык supertick-setup и агенты ролей agents/supertick-<роль>.md с правами (permission). Результат не в git; ставит tools/install-opencode.sh в ~/.config/opencode/.",
+  "include": [
+    {
+      "from": "core/scripts",
+      "to": "skills/supertick-team-feature/scripts",
+      "exclude": [
+        "tests"
+      ]
+    },
+    {
+      "from": "core/engines",
+      "to": "skills/supertick-team-feature/engines"
+    },
+    {
+      "from": "core/references",
+      "to": "skills/supertick-team-feature/references"
+    },
+    {
+      "from": "core/roles",
+      "to": "skills/supertick-team-feature/roles"
+    },
+    {
+      "from": "hosts/shared/LEAD.md",
+      "to": "skills/supertick-team-feature/LEAD.md"
+    },
+    {
+      "from": "hosts/opencode/primitives.md",
+      "to": "skills/supertick-team-feature/primitives.md"
+    },
+    {
+      "from": "hosts/opencode/skills/supertick-team-feature/SKILL.md",
+      "to": "skills/supertick-team-feature/SKILL.md"
+    },
+    {
+      "from": "hosts/opencode/skills/supertick-setup/SKILL.md",
+      "to": "skills/supertick-setup/SKILL.md"
+    },
+    {
+      "from": "core/roles/coder.md",
+      "to": "agents/supertick-coder.md",
+      "frontmatter": {
+        "description": "Кодер одной задачи: делает её по образцам, сдаёт на ревью отчётом, коммитит после одобрения. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "allow",
+          "bash": "allow",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/unified-reviewer.md",
+      "to": "agents/supertick-unified-reviewer.md",
+      "frontmatter": {
+        "description": "Единственный рецензент задачи: безопасность, логика, соответствие плану, качество; вердикт отчётом. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/acceptance-checker.md",
+      "to": "agents/supertick-acceptance-checker.md",
+      "frontmatter": {
+        "description": "Приёмщик задачи: подтверждает каждый критерий по диффу коммитов и запуску тестовой команды. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "allow",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/spec-verifier.md",
+      "to": "agents/supertick-spec-verifier.md",
+      "frontmatter": {
+        "description": "Проверяющий фазы 3: пункты спецификации и сверка задач между собой по общему диффу. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "allow",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/ci-verifier.md",
+      "to": "agents/supertick-ci-verifier.md",
+      "frontmatter": {
+        "description": "Проверяющий фазы 3: сборка, типы и полный набор тестов один раз, с выводом команд. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "allow",
+          "bash": "allow",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/tech-lead.md",
+      "to": "agents/supertick-tech-lead.md",
+      "frontmatter": {
+        "description": "Техлид: проверка плана, риски и решения по ним до кода. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/architect.md",
+      "to": "agents/supertick-architect.md",
+      "frontmatter": {
+        "description": "Архитектор одной из персон: спор о плане раундами через файлы и памятка рецензенту. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/risk-tester.md",
+      "to": "agents/supertick-risk-tester.md",
+      "frontmatter": {
+        "description": "Проверщик одного риска: доказывает или опровергает его скриптом во временном каталоге. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "allow",
+          "bash": "allow",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/codebase-researcher.md",
+      "to": "agents/supertick-codebase-researcher.md",
+      "frontmatter": {
+        "description": "Разведчик проекта: стек, раскладка, похожие функции, соглашения — коротко. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/reference-researcher.md",
+      "to": "agents/supertick-reference-researcher.md",
+      "frontmatter": {
+        "description": "Подборщик образцов: 3–7 лучших файлов проекта целиком под задачу. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    },
+    {
+      "from": "core/roles/legacy-scanner.md",
+      "to": "agents/supertick-legacy-scanner.md",
+      "frontmatter": {
+        "description": "Сканер наследия: что прогон оставил мёртвым, с доказательством grep. Запускает только ведущий supertick.",
+        "mode": "subagent",
+        "permission": {
+          "edit": "deny",
+          "bash": "deny",
+          "webfetch": "deny",
+          "task": "deny"
+        }
+      }
+    }
+  ]
+}

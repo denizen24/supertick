@@ -16,7 +16,7 @@
 - `__pycache__`, `*.pyc`, `.pytest_cache` ни в сборку, ни в сравнение не входят.
 - У пары в `include` могут быть ещё два ключа (121-567, H1):
   `exclude` — список имён каталогов или файлов, которые из источника-каталога не берутся;
-  `frontmatter` — объект (строки и списки строк), который ставится YAML-шапкой `---` перед текстом
+  `frontmatter` — объект (строки, списки строк и объекты строк в один уровень), который ставится YAML-шапкой `---` перед текстом
   файла-источника. Так тип агента среды собирается из брифа роли `core/roles/` без копии текста.
 
 Только stdlib. Код выхода: 0 — готово или совпало; 1 — расхождение в `--check`; 2 — ошибка манифеста.
@@ -62,7 +62,7 @@ def inside(root, rel, what):
 
 
 def frontmatter(data, where):
-    """YAML-шапка из объекта со строками и списками строк; строки — в кавычках JSON (это валидный YAML)."""
+    """YAML-шапка из объекта со строками, списками строк и объектами строк; строки — в кавычках JSON (валидный YAML)."""
     if not isinstance(data, dict) or not data:
         raise BuildError(f"{where}: frontmatter должен быть непустым объектом")
     lines = ["---"]
@@ -72,8 +72,11 @@ def frontmatter(data, where):
         elif isinstance(value, list) and all(isinstance(v, str) for v in value):
             lines.append(f"{key}:")
             lines += [f"  - {v}" for v in value]
+        elif isinstance(value, dict) and value and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+            lines.append(f"{key}:")   # один уровень вложенности: права агента OpenCode (permission: {edit: deny})
+            lines += [f"  {k}: {json.dumps(v, ensure_ascii=False)}" for k, v in value.items()]
         else:
-            raise BuildError(f"{where}: frontmatter.{key} — нужна строка или список строк")
+            raise BuildError(f"{where}: frontmatter.{key} — нужна строка, список строк или объект строк")
     return ("\n".join(lines) + "\n---\n\n").encode("utf-8")
 
 

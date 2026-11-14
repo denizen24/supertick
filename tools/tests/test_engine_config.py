@@ -185,13 +185,15 @@ class Fallback(unittest.TestCase):
 
 class Rule1NativeByDefault(unittest.TestCase):
     def test_an_unassigned_role_is_not_in_the_table_on_hosts_with_subagents(self):
-        for host in ("claude-code", "kimi"):
+        for host in ("claude-code", "kimi", "opencode"):
             with self.subTest(host=host):
                 self.assertNotIn("coder", resolved({"roles": {"spec-verifier": "cursor"}}, host=host)["table"])
 
     def test_a_host_without_subagents_runs_unassigned_roles_on_its_own_engine(self):
-        # opencode — предварительно, до спайка S0-OC: родных субагентов в таблице хостов пока нет
-        res = resolved({"roles": {"spec-verifier": "cursor"}}, host="opencode")
+        # после спайка S0-OC у всех известных сред субагенты есть — среда без них проверяется подменой таблицы
+        hosts = {**ec.HOSTS, "bare": {"level": "L1", "native": "bare", "subagents": False, "engine": "opencode"}}
+        with mock.patch.object(ec, "HOSTS", hosts):
+            res = resolved({"roles": {"spec-verifier": "cursor"}}, host="bare")
         self.assertEqual(res["table"]["coder"], "opencode")
         self.assertEqual(res["table"]["spec-verifier"], "cursor")
         self.assertNotIn("browser-verifier", res["table"])

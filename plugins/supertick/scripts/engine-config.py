@@ -43,11 +43,13 @@ HOST_MARKER_ENV = "CLAUDECODE"                    # D27: среда Claude Code 
 XDG_CONFIG = "~/.config/supertick/config.json"
 
 # Хосты. native — как называется родной исполнитель в таблице; subagents — есть ли у хоста родные
-# субагенты. Уровни L1–L3 из п. 1.3; opencode и codex — предварительно, до спайка S0-OC.
+# субагенты. Уровни L1–L3 из п. 1.3.
 HOSTS = {
     "claude-code": {"level": "L3", "native": "claude", "subagents": True, "engine": "claude"},
     "kimi":        {"level": "L2", "native": "native", "subagents": True, "engine": "kimi"},
-    "opencode":    {"level": "L1", "native": "opencode", "subagents": False, "engine": "opencode"},
+    # OpenCode (спайк S0-OC 14.11.2026): родные субагенты (`task`) со своим типом, моделью и правами, продолжение по
+    # task_id; фона и пробуждения нет — L1. Неназначенные роли — родные агенты supertick-<роль> (H3)
+    "opencode":    {"level": "L1", "native": "native", "subagents": True, "engine": "opencode"},
     # Codex (спайк S0-CX 12.11.2026): родные субагенты с продолжением есть (spawn_agent, send_input,
     # wait_agent до часа), но ведущего никто не будит: ожидание только внутри хода — уровень L1.
     # roles_on_engine (H4): неназначенные роли идут не родному субагенту, а движком codex с моделью ведущего —

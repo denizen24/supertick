@@ -139,6 +139,19 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### H3 — OpenCode adapter (in progress)
+
+- `hosts/opencode` and `tools/install-opencode.sh`: skills `supertick-team-feature` and `supertick-setup`, role agents
+  `supertick-<role>` with OpenCode permissions (the same access as the Kimi types), installed into
+  `~/.config/opencode/` (or `<repo>/.opencode/` with `--project`). The whole bundle lives inside the team-feature
+  skill directory: OpenCode refuses files outside the project in `opencode run` (`external_directory` ask →
+  auto-reject, and a rejection ends the run), while skill directories are open to the lead and subagents.
+- OpenCode is L1 with native subagents in the host table, can lead (setup), and has a lead probe (`opencode run
+  --format json`, OpenCode shell commands parsed); the probe sets `PWD` (OpenCode takes the project from it) and
+  allows the stand directory. `build-host.py` frontmatter accepts one-level string objects (agent permissions).
+- Live probes on free Zen models: the lead holds the protocol on `glm-5.3-flash-free` (state, plan, 8 engine calls,
+  8 waits, a full task cycle) until the free usage limit; `deepseek-v4.1-flash-free` wanders into the probe internals.
+
 ### S0-OC and the `opencode` engine preset
 
 - Spike S0-OC (`docs/spikes/s0-hosts.md`, fixtures in `docs/spikes/fixtures/opencode/`): OpenCode 1.19.5 is L1 with

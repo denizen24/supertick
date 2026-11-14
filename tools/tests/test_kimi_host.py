@@ -134,9 +134,19 @@ class Frontmatter(unittest.TestCase):
         self.assertEqual(check.returncode, 1)
 
     def test_bad_frontmatter_is_refused(self):
+        for bad in ({"tools": [1]}, {"permission": {"edit": ["deny"]}}, {"permission": {}}):
+            with self.subTest(bad=bad):
+                root = tmpdir(self)
+                self.manifest(root, {"from": "src.md", "to": "a.md", "frontmatter": bad})
+                self.assertEqual(self.run_build(root).returncode, 2)
+
+    def test_one_level_object_for_opencode_permissions(self):
         root = tmpdir(self)
-        self.manifest(root, {"from": "src.md", "to": "a.md", "frontmatter": {"tools": [1]}})
-        self.assertEqual(self.run_build(root).returncode, 2)
+        self.manifest(root, {"from": "src.md", "to": "a.md",
+                             "frontmatter": {"mode": "subagent", "permission": {"edit": "deny", "bash": "allow"}}})
+        self.assertEqual(self.run_build(root).returncode, 0)
+        self.assertEqual((root / "out" / "a.md").read_text(encoding="utf-8"),
+                         '---\nmode: "subagent"\npermission:\n  edit: "deny"\n  bash: "allow"\n---\n\nтело\n')
 
     def test_exclude_skips_named_parts(self):
         root = tmpdir(self)

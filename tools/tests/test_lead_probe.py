@@ -41,14 +41,16 @@ ss = load("supertick_setup_h2", "supertick-setup.py")
 
 
 class Bench:
-    """Собранный набор среды (kimi или codex) и каталог PATH с поддельным CLI под её именем."""
-    MODEL = {"kimi": "kimi-code/k3", "codex": "gpt-5.6-sol"}
+    """Собранный набор среды (kimi, codex или opencode) и каталог PATH с поддельным CLI под её именем."""
+    MODEL = {"kimi": "kimi-code/k3", "codex": "gpt-5.6-sol", "opencode": "opencode/deepseek-v4.1-flash-free"}
+    ROOT_IN = {"opencode": "skills/supertick-team-feature"}   # у OpenCode набор лежит внутри навыка
 
     def __init__(self, home, host="kimi"):
         self.home, self.host = Path(home), host
         self.bundle = self.home / "bundle"
         subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "build-host.py"), host, "--out", str(self.bundle)],
                        capture_output=True, text=True, check=True)
+        self.root = self.bundle / self.ROOT_IN.get(host, "")
         self.bin = self.home / "bin"
         self.bin.mkdir()
         executable(self.bin / host, f'#!/bin/sh\nFAKE_LEAD_HOST={host} exec {sys.executable} {FAKE} "$@"\n')
@@ -57,7 +59,7 @@ class Bench:
 
     def probe(self, broken="none", timeout=120, keep=None):
         env = dict(self.env, FAKE_LEAD_BREAK=broken)
-        return lp.probe(self.host, self.MODEL[self.host], root=self.bundle, timeout=timeout, env=env, keep=keep)
+        return lp.probe(self.host, self.MODEL[self.host], root=self.root, timeout=timeout, env=env, keep=keep)
 
 
 @unittest.skipUnless(shutil.which("setsid") and shutil.which("git"), "нужны setsid и git")
@@ -114,7 +116,7 @@ class ProbeVerdicts(unittest.TestCase):
 
 class ProbeLimits(unittest.TestCase):
     def test_hosts_without_a_probe_say_why(self):
-        for host, word in (("claude-code", "1.1.x"), ("opencode", "H3")):   # Codex — проба с H4 (test_codex_host)
+        for host, word in (("claude-code", "1.1.x"),):   # Codex — проба с H4 (test_codex_host), OpenCode — с H3
             with self.subTest(host=host):
                 with self.assertRaises(lp.ProbeError) as ctx:
                     lp.probe(host)

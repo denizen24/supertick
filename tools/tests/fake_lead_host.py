@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Поддельная среда ведущего для тестов пробы (121-567, H2).
 
-Стоит в PATH под именем CLI среды (`kimi` или `codex`, H4): по имени выбирает среду, её уровень и формат
+Стоит в PATH под именем CLI среды (`kimi`, `codex` с H4, `opencode` с H3): по имени выбирает среду, её уровень и формат
 вывода (stream-json Kimi или JSONL Codex) по FAKE_LEAD_HOST из обёртки. Аргументы headless-запуска игнорирует, сам играет ведущего:
 каждая команда — блок `# lead:<id>` из LEAD.md набора ($SUPERTICK_ROOT), как в test_lead_protocol.py.
 Одна задача: кодер (мок оставит PROBE-BUG) → ревью CHANGES REQUESTED → продолжение кодера → ревью
@@ -32,7 +32,7 @@ from pathlib import Path
 
 BREAK = os.environ.get("FAKE_LEAD_BREAK", "none")
 HOST = os.environ.get("FAKE_LEAD_HOST", "kimi")   # обёртка в PATH ставит имя своей среды
-LEVEL = {"codex": "L1", "kimi": "L2"}[HOST]
+LEVEL = {"codex": "L1", "kimi": "L2", "opencode": "L1"}[HOST]
 ROOT = Path(os.environ["SUPERTICK_ROOT"])
 S = ROOT / "scripts"
 REPO = Path.cwd()
@@ -54,7 +54,11 @@ def sh(block, extra="", **subs):
 
 def raw(cmd):
     res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, cwd=str(REPO), timeout=300)
-    if HOST == "codex":   # как codex exec --json: команда обёрнута в bash -lc
+    if HOST == "opencode":   # как opencode run --format json: tool_use с part.tool = bash
+        TRANSCRIPT.append({"type": "tool_use", "sessionID": "ses_fake", "part": {
+            "type": "tool", "tool": "bash", "messageID": f"msg_{len(TRANSCRIPT)}",
+            "state": {"status": "completed", "input": {"command": cmd}, "output": res.stdout[-200:]}}})
+    elif HOST == "codex":   # как codex exec --json: команда обёрнута в bash -lc
         wrapped = "/bin/bash -lc " + json.dumps(cmd)
         TRANSCRIPT.append({"type": "item.completed", "item": {"id": f"item_{len(TRANSCRIPT)}", "type": "command_execution",
                            "command": wrapped, "aggregated_output": res.stdout[-200:], "exit_code": res.returncode,
@@ -190,6 +194,8 @@ def main():
     for rec in TRANSCRIPT:
         print(json.dumps(rec, ensure_ascii=False))
     final = ({"type": "item.completed", "item": {"type": "agent_message", "text": "ГОТОВО"}} if HOST == "codex"
+             else {"type": "text", "sessionID": "ses_fake", "part": {"type": "text", "messageID": "msg_final",
+                                                                     "text": "ГОТОВО"}} if HOST == "opencode"
              else {"role": "assistant", "content": "ГОТОВО"})
     print(json.dumps(final, ensure_ascii=False))
 
