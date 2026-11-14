@@ -100,8 +100,8 @@ class Samples(unittest.TestCase):
         r = Run(self)
         r.write("PLAN.md", PLAN_SAMPLE)
         self.assertEqual(st.plan_tasks(r.dir), {
-            "1": {"status": "DONE", "files": ["a.py", "docs/b.md"]},
-            "2a": {"status": "IN_PROGRESS(coder-2)", "files": ["c.sh"]}})
+            "1": {"status": "DONE", "files": ["a.py", "docs/b.md"], "title": "Каркас"},   # title — для зеркала run.json (X2)
+            "2a": {"status": "IN_PROGRESS(coder-2)", "files": ["c.sh"], "title": "Вторая часть"}})
 
     def test_state_phase_reads_the_phase_line(self):
         r = Run(self)
