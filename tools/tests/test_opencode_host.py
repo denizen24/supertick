@@ -76,6 +76,13 @@ class OpencodeBuild(unittest.TestCase):
         skills = sorted(str(p.relative_to(self.out)) for p in self.out.rglob("SKILL.md"))
         self.assertEqual(skills, sorted([f"{SKILL}/SKILL.md", "skills/supertick-setup/SKILL.md"]), "других SKILL.md в наборе нет")
 
+    def test_version_is_the_same_as_other_hosts_and_doctor_sees_it(self):
+        kimi = json.loads((ROOT / "hosts" / "kimi" / "kimi.plugin.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.out / SKILL / "supertick.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], kimi["version"], "одна версия набора на все среды")
+        doctor = load("doctor_h3", "supertick-doctor.py")
+        self.assertEqual(doctor.bundle_version(self.out / SKILL), (kimi["version"], "supertick.json"))
+
     def test_skill_names_match_their_folders_and_root_comes_from_base_directory(self):
         for name in ("supertick-team-feature", "supertick-setup"):
             fm = frontmatter(self.out / "skills" / name / "SKILL.md")

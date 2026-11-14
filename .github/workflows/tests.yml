@@ -6,13 +6,32 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # macOS: скрипты набора ждут GNU-инструменты (setsid, timeout, date -Is, readlink -f) и bash новее 3.2 —
+      # те же пакеты, что в рецепте docs/hosts.md
+      - name: GNU tools on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install bash coreutils util-linux
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix util-linux)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix util-linux)/sbin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
+      - name: Host builds are reproducible (kimi, codex, opencode)
+        run: |
+          for h in kimi codex opencode; do python3 tools/build-host.py "$h" --out "$RUNNER_TEMP/build-$h"; done
 
       - name: Plugin build matches core/ and hosts/
         run: |

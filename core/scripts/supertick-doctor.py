@@ -33,7 +33,7 @@ setup = _load("supertick_setup", "supertick-setup.py")
 ec = setup.ec
 
 # Манифесты наборов по средам: первый найденный в корне даёт версию.
-MANIFESTS = (".claude-plugin/plugin.json", "kimi.plugin.json", ".codex-plugin/plugin.json", "package.json")
+MANIFESTS = (".claude-plugin/plugin.json", "kimi.plugin.json", ".codex-plugin/plugin.json", "supertick.json", "package.json")
 
 
 def bundle_root(env=None):

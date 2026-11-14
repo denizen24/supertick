@@ -35,6 +35,10 @@
       "to": "skills/supertick-team-feature/SKILL.md"
     },
     {
+      "from": "hosts/opencode/supertick.json",
+      "to": "skills/supertick-team-feature/supertick.json"
+    },
+    {
       "from": "hosts/opencode/skills/supertick-setup/SKILL.md",
       "to": "skills/supertick-setup/SKILL.md"
     },

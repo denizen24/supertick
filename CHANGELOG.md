@@ -139,6 +139,16 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### V2 (2.0.0-beta acceptance)
+
+- Version `2.0.0-beta.1` for the Kimi, Codex and OpenCode bundles (the Claude Code build stays 1.1.1 plus the declared
+  changes); the OpenCode bundle carries `supertick.json`, which `supertick-doctor.py` reads.
+- `docs/hosts.md` rewritten for beta: per-host recipes (install, run with and without a person, traps) for Kimi, Codex
+  and OpenCode, macOS requirements (GNU tools from Homebrew), probes passed on all three hosts.
+- CI runs on Linux and macOS (`macos-latest` installs `bash coreutils util-linux` from Homebrew, as the recipe says)
+  and builds every host bundle.
+- Acceptance: R4 (OpenCode) passed — `docs/trials/2.0-beta-runs.md`; R1–R3, R5, R6 carry over from alpha.
+
 ### H3 — OpenCode adapter
 
 - `hosts/opencode` and `tools/install-opencode.sh`: skills `supertick-team-feature` and `supertick-setup`, role agents
