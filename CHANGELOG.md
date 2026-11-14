@@ -139,7 +139,7 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
-### H3 — OpenCode adapter (in progress)
+### H3 — OpenCode adapter
 
 - `hosts/opencode` and `tools/install-opencode.sh`: skills `supertick-team-feature` and `supertick-setup`, role agents
   `supertick-<role>` with OpenCode permissions (the same access as the Kimi types), installed into
@@ -149,8 +149,9 @@
 - OpenCode is L1 with native subagents in the host table, can lead (setup), and has a lead probe (`opencode run
   --format json`, OpenCode shell commands parsed); the probe sets `PWD` (OpenCode takes the project from it) and
   allows the stand directory. `build-host.py` frontmatter accepts one-level string objects (agent permissions).
-- Live probes on free Zen models: the lead holds the protocol on `glm-5.3-flash-free` (state, plan, 8 engine calls,
-  8 waits, a full task cycle) until the free usage limit; `deepseek-v4.1-flash-free` wanders into the probe internals.
+- Live checks (`docs/spikes/h3-opencode-live.md`): the lead probe passed on `opencode/glm-5.3-flash` (paid, cheap);
+  the acceptance SIMPLE run from OpenCode reached ALL_PASS in 15 minutes, 3 tasks DONE, coder commits, GIT GUARD OK,
+  all roles native `supertick-*` agents. Free models hit the Zen free usage limit, after which `opencode run` hangs.
 
 ### S0-OC and the `opencode` engine preset
 
