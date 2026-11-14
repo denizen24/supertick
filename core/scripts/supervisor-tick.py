@@ -78,6 +78,15 @@ run-engine.sh; свою карточку он не ведёт, её заводи
 Использование:
   supervisor-tick.py <run-dir> [--root <корень репозитория>] [--mode claude|shared] [--json] [--now ISO]
   supervisor-tick.py ack <run-dir> <имя файла письма>   — ведущий ответил на письмо
+  supervisor-tick.py budgets <SIMPLE|MEDIUM|COMPLEX> [--budget=enforce|off|a/r/c]   — раздел ## Budgets для state.md
+  supervisor-tick.py plan <run-dir>            — planned_agents против max_agents (2 — превышение в enforce)
+  supervisor-tick.py postrun-check <run-dir> [--root <репозиторий>]   — сверки перед сводкой (1 — есть находки)
+
+Бюджеты (121-567, X1; идея — dsh-supertick, см. NOTICE): только при разделе `## Budgets` в state.md. Режим
+`observe` (по умолчанию) — превышения P3 budget_note; `enforce` — P1 agent_budget_exceeded, concurrency_exceeded,
+review_rounds_exceeded, fanout_planned_exceeded; `off` — молчат. Каждое превышение — одно событие (память тика).
+P0 read_agent_owns_files — участник с `access: read` закоммитил (поле commits карточки или отчёт COMMITTED) —
+нарушение контракта, в любом режиме. Пороги — docs/budgets.md.
 """
 import json
 import os
@@ -137,6 +146,9 @@ def plan_tasks(run_dir):
         m = re.match(r"^Files to (?:create/edit|edit|create):\s*(.+)$", line)
         if m:
             tasks[current]["files"] = [f.strip() for f in m.group(1).split(",") if f.strip()]
+        m = re.match(r"^-?\s*planned[_ ]agents:\s*(\d+)", line, re.I)
+        if m:
+            tasks[current]["planned"] = int(m.group(1))
     return tasks
 
 
@@ -399,6 +411,129 @@ def shared_executors(run_dir, runs, calls, now, add):
                 detail=f"{age // 60} мин после старта при сроке {timeout // 60} мин, статус {status}", ref=ref)
 
 
+# ---------------------------------------------------------------- бюджеты (121-567, X1)
+# Пороги по прошлым прогонам (tools/calibrate_budgets.py, docs/budgets.md): максимум по сложности с запасом 25 %.
+BUDGET_DEFAULTS = {"SIMPLE": (17, 3, 4), "MEDIUM": (27, 4, 9), "COMPLEX": (42, 5, 19)}
+BUDGET_KEYS = ("max_agents", "max_review_rounds", "max_concurrent_agents")
+BUDGET_MODES = ("observe", "enforce", "off")
+
+
+def state_budgets(run_dir):
+    """Раздел `## Budgets` state.md: {mode, max_agents, max_review_rounds, max_concurrent_agents} или None —
+    раздела нет (прогоны 1.1.x): бюджетных правил нет вовсе."""
+    path = run_dir / "state.md"
+    text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+    m = re.search(r"^## Budgets[^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if not m:
+        return None
+    body = m.group(1)
+    mode = re.search(r"mode:\s*(\w+)", body)
+    out = {"mode": mode.group(1) if mode and mode.group(1) in BUDGET_MODES else "observe"}
+    for key in BUDGET_KEYS:
+        n = re.search(rf"{key}:\s*(\d+)", body)
+        out[key] = int(n.group(1)) if n else None
+    return out
+
+
+def budgets_section(complexity, flags=()):
+    """Текст раздела `## Budgets` для state.md: пороги по сложности, `--budget=enforce|off|observe|a/r/c`."""
+    level = str(complexity).upper()
+    if level not in BUDGET_DEFAULTS:
+        raise SystemExit(f"supervisor-tick budgets: сложность {complexity!r}, ждём SIMPLE, MEDIUM или COMPLEX")
+    mode, nums = "observe", list(BUDGET_DEFAULTS[level])
+    for flag in flags:
+        for part in str(flag).replace("--budget=", "").split(","):
+            if part in BUDGET_MODES:
+                mode = part
+            elif re.fullmatch(r"\d+/\d+/\d+", part):
+                nums = [int(x) for x in part.split("/")]
+            elif part:
+                raise SystemExit(f"supervisor-tick budgets: --budget={part!r} — ждём observe, enforce, off или a/r/c")
+    return (f"## Budgets\n- mode: {mode}\n"
+            f"- max_agents: {nums[0]}  max_review_rounds: {nums[1]}  max_concurrent_agents: {nums[2]}\n")
+
+
+def run_agents(run_dir, runs):
+    """{имя участника: id задачи или ""}: карточки runs/ и одноразовые роли без карточки (engine/<имя>/)."""
+    names = {n: str(r.get("task", "") or "") for n, r in runs.items()}
+    if (run_dir / "engine").is_dir():
+        for d in (run_dir / "engine").iterdir():
+            if d.is_dir() and d.name not in names:
+                m = re.match(r"task([^-]+)-", d.name)
+                names[d.name] = m.group(1) if m else ""
+    for name, task in list(names.items()):
+        if not task:
+            m = re.match(r"task([^-]+)-", name)
+            names[name] = m.group(1) if m else ""
+    return names
+
+
+def first_line(path):
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.strip():
+                return line.strip()
+    except OSError:
+        pass
+    return ""
+
+
+def review_fails(run_dir):
+    """{задача: число вердиктов «на доработку»}: отчёты ревью (общий протокол) и письма-вердикты (Claude Code)."""
+    fails = {}
+    for f in sorted((run_dir / "reports").glob("review-task*-r*.md")) if (run_dir / "reports").is_dir() else []:
+        m = re.match(r"review-task([^-]+)-r\d+", f.name)
+        if m and re.search(r"CHANGES REQUESTED|\bFAIL\b", first_line(f)):
+            fails[m.group(1)] = fails.get(m.group(1), 0) + 1
+    for box in mail_boxes(run_dir) if (run_dir / "mail").is_dir() else []:
+        for letter in read_mail(run_dir, box):
+            if letter["kind"] == "VERDICT" and letter["task"] and re.search(r"CHANGES|FAIL", letter["first"]):
+                fails[letter["task"]] = fails.get(letter["task"], 0) + 1
+    return fails
+
+
+def budget_events(run_dir, tasks, runs, budgets):
+    """Превышения бюджета сейчас: [(kind, ключ памяти, деталь)]."""
+    if not budgets or budgets["mode"] == "off":
+        return []
+    events = []
+    agents = run_agents(run_dir, runs)
+    if budgets["max_agents"] is not None and len(agents) > budgets["max_agents"]:
+        events.append(("agent_budget_exceeded", "agents",
+                       f"участников {len(agents)} при max_agents {budgets['max_agents']}"))
+    live = [n for n, r in runs.items() if str(r.get("status", "")) in LIVE]
+    if budgets["max_concurrent_agents"] is not None and len(live) > budgets["max_concurrent_agents"]:
+        events.append(("concurrency_exceeded", f"concurrent:{len(live)}",
+                       f"работают одновременно {len(live)} при max_concurrent_agents {budgets['max_concurrent_agents']}: "
+                       + ", ".join(sorted(live))))
+    for task, n in sorted(review_fails(run_dir).items()):
+        if budgets["max_review_rounds"] is not None and n > budgets["max_review_rounds"]:
+            events.append(("review_rounds_exceeded", f"rounds:{task}",
+                           f"task {task}: вердиктов на доработку {n} при max_review_rounds {budgets['max_review_rounds']}"))
+    per_task = {}
+    for name, task in agents.items():
+        if task:
+            per_task[task] = per_task.get(task, 0) + 1
+    for task, info in sorted(tasks.items()):
+        planned = info.get("planned")
+        if planned is not None and per_task.get(task, 0) > planned:
+            events.append(("fanout_planned_exceeded", f"fanout:{task}",
+                           f"task {task}: участников {per_task[task]} при planned_agents {planned}"))
+    return events
+
+
+def read_agent_commits(run_dir, runs):
+    """Участники с `access: read`, у которых есть коммиты (поле `commits` карточки или отчёт COMMITTED)."""
+    found = []
+    for name, card in runs.items():
+        if str(card.get("access", "")) != "read":
+            continue
+        report = run_dir / str(card["report"]) if card.get("report") else None
+        if card.get("commits") or (report and first_line(report).startswith(("COMMITTED", "COMMITS"))):
+            found.append((name, ", ".join(card.get("commits") or []) or f"отчёт {card.get('report')}"))
+    return found
+
+
 def tick(run_dir, root=None, now=None, mode="claude"):
     if mode not in MODES:
         raise SystemExit(f"supervisor-tick: --mode ждёт одно из {', '.join(MODES)}")
@@ -505,6 +640,23 @@ def tick(run_dir, root=None, now=None, mode="claude"):
     if shared:
         shared_executors(run_dir, runs, calls, now, add)
 
+    # ---- бюджеты и контракт доступа: только когда ведущий записал `## Budgets` / карточки с `access`
+    budgets = state_budgets(run_dir)
+    budget_fired = list(memory.get("budget", []))
+    for name, what in read_agent_commits(run_dir, runs):   # нарушение контракта, не бюджет: P0 в любом режиме
+        if f"read_owns:{name}" not in budget_fired:
+            budget_fired.append(f"read_owns:{name}")
+            add("P0", "read_agent_owns_files", run=name, detail=f"участник с access: read закоммитил: {what}",
+                ref=f"runs/{name}.json")
+    for kind, key, detail in budget_events(run_dir, tasks, runs, budgets):
+        if key in budget_fired:
+            continue   # одно превышение — одно событие
+        budget_fired.append(key)
+        if budgets["mode"] == "enforce":
+            add("P1", kind, detail=detail, ref="state.md")
+        else:
+            add("P3", "budget_note", detail=f"{kind}: {detail}", ref="state.md")
+
     # ---- участники: первая минута, контрольные точки, молчание
     signals_from = {l["from"] for l in lead_mail}
     busy = {}   # окно -> команда живого теста под корнем; считается по нужде, раз за тик
@@ -576,6 +728,8 @@ def tick(run_dir, root=None, now=None, mode="claude"):
     }
     if shared:
         snapshot["mode"] = "shared"
+    if budgets is not None or budget_fired:
+        snapshot["budget"] = budget_fired
     (run_dir / "state").mkdir(exist_ok=True)
     tmp = memory_file.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -590,7 +744,109 @@ def ack(run_dir, name):
         f.write(Path(name).name + "\n")
 
 
+def plan_check(run_dir):
+    """`plan <run>`: сумма planned_agents против max_agents. (код, строки): 2 — превышение в enforce или нет
+    раздела ## Budgets; в observe превышение — предупреждение и 0; off — 0."""
+    run_dir = Path(run_dir)
+    budgets = state_budgets(run_dir)
+    if budgets is None:
+        return 2, ["PLAN BUDGET: в state.md нет раздела ## Budgets (supervisor-tick.py budgets <сложность>)"]
+    if budgets["mode"] == "off":
+        return 0, ["PLAN BUDGET: off — бюджет не проверяется"]
+    tasks = plan_tasks(run_dir)
+    total = sum(t.get("planned", 0) for t in tasks.values())
+    missing = [t for t, info in tasks.items() if "planned" not in info and not info["status"].startswith("DONE")]
+    lines = [f"PLAN BUDGET: planned_agents {total} из max_agents {budgets['max_agents']} ({budgets['mode']})"]
+    if missing:
+        lines.append("без planned_agents: " + ", ".join(f"task {t}" for t in missing))
+    over = budgets["max_agents"] is not None and total > budgets["max_agents"]
+    if over and budgets["mode"] == "enforce":
+        lines.append("ПРЕВЫШЕНИЕ: сократи план или спроси пользователя")
+        return 2, lines
+    if over:
+        lines.append("⚠️ превышение (observe): запиши в сводку, прогон идёт")
+    return 0, lines
+
+
+def git_has_commit(root, sha):
+    import subprocess
+    try:
+        return subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def postrun_check(run_dir, root=None, now=None):
+    """`postrun-check <run>`: механические сверки перед сводкой. Список находок (пусто — всё сходится)."""
+    run_dir = Path(run_dir).resolve()
+    root = Path(root) if root else run_dir.parents[2] if run_dir.parent.parent.name == ".supertick" else run_dir.parents[1]
+    now = now or datetime.now(timezone.utc).astimezone()
+    findings = []
+    tasks = plan_tasks(run_dir)
+    reports = run_dir / "reports"
+    for task, info in tasks.items():
+        if info["status"] != "DONE":
+            continue
+        shas = []
+        for f in sorted(reports.glob(f"task{task}-coder*.md")) if reports.is_dir() else []:
+            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = re.match(r"^\s*COMMITS?:\s*(.+)$", line)
+                if m:
+                    shas += re.findall(r"\b[0-9a-f]{7,40}\b", m.group(1))
+        if not shas:
+            findings.append(f"task {task}: DONE без строки COMMITS: в отчётах кодера (reports/task{task}-coder*.md)")
+        for sha in shas:
+            if not git_has_commit(root, sha):
+                findings.append(f"task {task}: коммита {sha} нет в репозитории {root}")
+        accept = reports / f"accept-task{task}.md"
+        if not re.search(r"^ACCEPT:.*\bPASS\b", first_line(accept)):
+            findings.append(f"task {task}: DONE без reports/accept-task{task}.md с ACCEPT … PASS")
+    for line, _ in pending_open(run_dir, now):
+        findings.append(f"pending.log: OPEN — {line}")
+    for call in engine_calls(run_dir, now):
+        if call["state"] == "done-unread":
+            findings.append(f"движок {call['role']}: результат не забран ({call['base']}.done без .taken)")
+        elif call["state"] in ("dead", "running"):
+            findings.append(f"движок {call['role']}: {call['state']} ({call['base']})")
+    budgets = state_budgets(run_dir)
+    events = budget_events(run_dir, tasks, read_runs(run_dir), budgets)
+    report = run_dir / "VERIFICATION_REPORT.md"
+    text = report.read_text(encoding="utf-8", errors="replace") if report.exists() else ""
+    for kind, _, detail in events:
+        if kind not in text and "Budgets" not in text:
+            findings.append(f"бюджет: {kind} ({detail}) не записан в VERIFICATION_REPORT.md (строка Budgets:)")
+    for name, what in read_agent_commits(run_dir, read_runs(run_dir)):
+        findings.append(f"read_agent_owns_files: {name} — {what}")
+    mirror = run_dir / "state" / "run.json"
+    if mirror.exists() and "validate_run" in globals():
+        findings += [f"state/run.json: {p}" for p in validate_run(run_dir)]
+    return findings
+
+
 def main(argv):
+    if argv and argv[0] == "budgets":
+        if len(argv) < 2:
+            raise SystemExit("использование: supervisor-tick.py budgets <SIMPLE|MEDIUM|COMPLEX> [--budget=…]")
+        print(budgets_section(argv[1], argv[2:]), end="")
+        return 0
+    if argv and argv[0] == "plan":
+        if len(argv) != 2:
+            raise SystemExit("использование: supervisor-tick.py plan <run-dir>")
+        code, lines = plan_check(argv[1])
+        print("\n".join(lines))
+        return code
+    if argv and argv[0] == "postrun-check":
+        rest, root = argv[1:], None
+        if "--root" in rest:
+            i = rest.index("--root")
+            root = rest[i + 1]
+            rest = rest[:i] + rest[i + 2:]
+        if len(rest) != 1:
+            raise SystemExit("использование: supervisor-tick.py postrun-check <run-dir> [--root <репозиторий>]")
+        found = postrun_check(rest[0], root)
+        print("\n".join(["POSTRUN CHECK: находок нет"] if not found else [f"POSTRUN CHECK: находок {len(found)}"] + [f"- {f}" for f in found]))
+        return 1 if found else 0
     if argv and argv[0] == "ack":
         if len(argv) != 3:
             raise SystemExit("использование: supervisor-tick.py ack <run-dir> <файл письма>")

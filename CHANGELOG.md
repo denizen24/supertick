@@ -139,6 +139,21 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### X1 — budgets, `plan`, `postrun-check`
+
+- Budgets in `state.md` (`## Budgets`, printed by `supervisor-tick.py budgets <complexity> [--budget=…]`): `observe` by
+  default (P3 `budget_note`, the lead is not woken), `enforce` (P1 `agent_budget_exceeded`, `concurrency_exceeded`,
+  `review_rounds_exceeded`, `fanout_planned_exceeded`), `off`. Every excess is one event. Runs without the section
+  (Claude Code, 1.1.x) are untouched — the tick snapshots and the replay against 1.1.1 stay the same.
+- P0 `read_agent_owns_files` in any mode: an executor with `access: read` committed. `run-state.py` gives shared-protocol
+  cards (`executor=`) the role's access from the engine-config registry and accepts `commits=`.
+- `supervisor-tick.py plan <run>` (planned agents against `max_agents`; 2 only on excess in `enforce` or without the
+  section) and `postrun-check <run>` (commits of DONE tasks exist, acceptance PASS, no OPEN copies, no unread or live
+  engines, budget excesses written down, no commits from read roles; 1 on any finding). LEAD.md: budgets at step 0,
+  `Planned agents:` in PLAN.md, `plan` before the first coder, `postrun-check` before the summary.
+- Thresholds from `tools/calibrate_budgets.py` over 54 past runs (`docs/budgets.md`): 17/3/4, 27/4/9, 42/5/19 — the
+  spec's 8/14/30 agents would fire on every shared-protocol SIMPLE. Idea from dsh-supertick, code written anew (`NOTICE`).
+
 ### V2 (2.0.0-beta acceptance)
 
 - Version `2.0.0-beta.1` for the Kimi, Codex and OpenCode bundles (the Claude Code build stays 1.1.1 plus the declared

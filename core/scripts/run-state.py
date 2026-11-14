@@ -5,7 +5,9 @@
                    [acceptance=...] [nonGoals=...]          — ведущий, прямо перед спавном
                    (роль без задачи — рецензент, техлид — рождается `idle`: ждёт первый запрос)
   run-state.py set <run-dir> <name> status=<running|in_review|fixing|reviewing|done|stuck|idle|stopped> \
-                   [note=...] [task=<id>]                    — сам участник, при каждом событии
+                   [note=...] [task=<id>] [commits=sha1,sha2]  — сам участник, при каждом событии
+Карточка общего протокола (есть `executor=`) получает `access` роли из реестра engine-config.py — по нему тик
+ловит участника на чтение, который закоммитил (P0 read_agent_owns_files).
   run-state.py show <run-dir> [<name>]
 
 `set` всегда ставит lastEventAt=сейчас; первый `set status=running` ставит ещё и
@@ -20,7 +22,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-LISTS = ("files", "acceptance", "nonGoals")
+LISTS = ("files", "acceptance", "nonGoals", "commits")
 
 
 def now():
@@ -39,6 +41,18 @@ def parse(pairs):
             v = int(v)
         out[k] = v
     return out
+
+
+def role_access(role):
+    """read | write роли по реестру engine-config.py (second-reviewer и architect-* — как у их брифов)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("engine_config_rs", Path(__file__).with_name("engine-config.py"))
+    try:
+        ec = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ec)
+    except (OSError, ImportError, SyntaxError):
+        return ""
+    return ec.ROLES.get(role, {}).get("access", "")
 
 
 def write(path, data):
@@ -68,6 +82,8 @@ def main(argv):
                 "files": fields.pop("files", []), "acceptance": fields.pop("acceptance", []),
                 "nonGoals": fields.pop("nonGoals", []), "checkAfterSec": fields.pop("checkAfterSec", 900), "note": ""}
         data.update(fields)
+        if "executor" in data and "access" not in data:   # общий протокол (121-567, X1): доступ роли из реестра
+            data["access"] = role_access(role)
         write(path, data)
     elif cmd == "set":
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"name": name, "spawnedAt": now()}

@@ -203,6 +203,8 @@ python3 <S>/supervisor-tick.py <RUN> --root <REPO> --mode shared
 | P0 `engine_result_unread` | результат лежит 15 минут: `lead:take` немедленно |
 | P0 `executor_overdue` | исполнитель вышел за срок: у движка `run-engine.sh --status <RUN> <NAME>`; живой — продли карточку (`set … timeoutSec=<больше>`); мёртвый или родной без ответа — ОСТАНОВИТЬ, `set status=stopped`, новый исполнитель под новым именем с тем же заданием и черновиком в дереве как входом |
 | P0 `stuck` | ты сам пометил исполнителя `stuck`: реши (раздел «Если застряли») |
+| P1 бюджета (`agent_budget_exceeded` …, только `enforce`) · P3 `budget_note` | P1 `review_rounds_exceeded` — СПРОСИ вместо нового круга; прочие — в сводку |
+| P0 `read_agent_owns_files` | роль на чтение закоммитила: ОСТАНОВИТЬ её, решение в DECISIONS.md, ⚠️ в ленту |
 | P4 `ok` | снова ожидание |
 
 Остановленному или заменённому исполнителю — сразу `run-state.py set <RUN> <NAME> status=stopped`,
@@ -244,7 +246,7 @@ python3 <S>/supervisor-tick.py <RUN> --root <REPO> --mode shared
 **Аргументы** (как их передала точка входа): строка — описание фичи; путь к `.md` — готовый план
 или бриф интервью; `--coders=N` — сколько кодеров одновременно (по умолчанию 3); `--no-research`;
 `--engines=off` — все роли на родном исполнителе; `--complexity=simple|medium|complex`;
-`--force-team`; `--full-run=deferred`.
+`--force-team`; `--full-run=deferred`; `--budget=enforce|off|a/r/c` (бюджеты, по умолчанию observe).
 
 **Ориентация** — сам и быстро: файл инструкций проекта (`AGENTS.md`, `CLAUDE.md` или
 аналог), верхний уровень дерева, все `.conventions/gold-standards/*` (20–30 строк каждый —
@@ -314,6 +316,7 @@ Acceptance criteria:
 
 Convention checks: <правила .conventions/>
 Tooling: <тестовая команда задачи>
+Planned agents: <исполнителей на задачу: кодер, ревью, приёмка; с запасом на круги>
 ```
 
 Критерии задачи — только то, что проверяется её собственными файлами в момент её сдачи. Тест, который
@@ -363,6 +366,7 @@ CRITICAL / MAJOR / MINOR. На каждый CRITICAL и до трёх MAJOR — 
 ## Complexity: <SIMPLE | MEDIUM | COMPLEX>
 ## Base Commit: <sha>
 ## Host: <HOST> (<L1 | L2>)
+<вывод lead:budgets>
 Plugin root: <корень набора>
 
 ## Engines
@@ -372,7 +376,14 @@ Plugin root: <корень набора>
 - <NAME>: task <id>, <engine|native> <id исполнителя или сессия>, запуск <n>
 ```
 
-`## Phase:` — `EXECUTION`, затем `VERIFICATION`. Статусы задач — только в PLAN.md.
+`## Phase:` — `EXECUTION`, затем `VERIFICATION`. Статусы задач — только в PLAN.md. Бюджеты — раздел из
+
+```bash
+# lead:budgets
+python3 <S>/supervisor-tick.py budgets <сложность> <флаг --budget из аргументов, если был>
+```
+
+и до первого кодера `lead:plan-budget`: `python3 <S>/supervisor-tick.py plan <RUN>`; код 2 — СПРОСИ (сократить план или идти).
 
 ## Фаза 2: цикл задачи
 
@@ -537,7 +548,8 @@ ARCHITECT BRIEFS: <пути reports/review-brief-*.md — только COMPLEX>
 6. **Наследие** — исполнитель `legacy-scanner` по тронутым файлам (не больше 10 пунктов, у каждого
    доказательство grep'ом); вместе с `LEGACY_REPORT.md` — СПРОСИ по пункту: удалить / оставить /
    позже. Удалить — одна задача чистки с ревью.
-7. **Сводка** — задачи, сложность, коммиты, риски, находки ревью по меткам `[security]`, `[logic]`,
+7. **Сводка** — сначала `python3 <S>/supervisor-tick.py postrun-check <RUN> --root <REPO>`: находки исправь или
+   перечисли в сводке (превышения бюджета — строкой `Budgets:` в VERIFICATION_REPORT.md). Затем задачи, сложность, коммиты, риски, находки ревью по меткам `[security]`, `[logic]`,
    `[quality]`, приёмка (принято, переоткрыто), итог проверяющих, наследие, ручные проверки, замены
    движков (строки ⚙️ шага 0 и прогона о ролях не на назначенном движке — дословно; замен нет — так
    и сказать). Числа

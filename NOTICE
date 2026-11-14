@@ -1,0 +1,7 @@
+supertick
+Copyright (c) denizen24
+
+Идея бюджетов fan-out (режимы observe/enforce/off, события agent_budget_exceeded, concurrency_exceeded,
+review_rounds_exceeded, fanout_planned_exceeded, read_agent_owns_files) и команд `plan` и `postrun-check`
+взята из описания dsh-supertick — форка supertick (HEAD df7cef6, v0.6.1). Код и тесты в supertick написаны
+заново по этому описанию (121-567, X1); код dsh-supertick не копировался.
