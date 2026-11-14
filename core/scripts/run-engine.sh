@@ -30,7 +30,9 @@
 #   NNN.out.done         written LAST: exit code, times, paths. Its presence means everything is ready
 #   NNN.out.taken        written by the caller after it has read and relayed the result
 #   session.txt          the engine session id, for `resume`
-# Ledger: <run-dir>/ledger.jsonl gets `launch` (with pid) and `done` | `failed`, with real `date -Is` times.
+# Ledger: <run-dir>/ledger.jsonl gets `launch` (with pid) and `done` | `failed`, with real `date -Is` times and the
+# model from the engine command (--model / -m). reports/<name> starts at the reply's first protocol head line
+# (a preamble glued in front of it is cut, `report_trimmed` = chars cut); .out.result.md keeps the reply as is.
 # A label that already exists is never reused: the next free number (or tag-2, tag-3…) is taken.
 set -u
 
@@ -79,7 +81,13 @@ if [ "${1:-}" = "__worker" ]; then
   out="$RE_OUT"; dir=$(dirname "$out")
   echo $$ > "$out.pid"
   started=$(date -Is); t0=$(date +%s)
-  json_line ts "$started" event launch role "$RE_ROLE" engine "$RE_ENGINE" task "$RE_TASK" \
+  model=""; prev=""   # the model as the engine command names it (--model X | --model=X | -m X)
+  for a in "$@"; do
+    case "$prev" in --model|-m) model="$a" ;; esac
+    case "$a" in --model=*) model="${a#--model=}" ;; esac
+    prev="$a"
+  done
+  json_line ts "$started" event launch role "$RE_ROLE" engine "$RE_ENGINE" model "$model" task "$RE_TASK" \
     label "$RE_LABEL" pid "$$" session "$RE_SESSION" prompt "$RE_PROMPT" out "$out" >> "$RE_LEDGER"
 
   prompt_text=$(cat "$RE_PROMPT")
@@ -180,12 +188,35 @@ PY
       stem="${RE_REPORT%.md}"; report="$stem-$RE_LABEL.md"; n=2
       while [ -e "$report" ]; do report="$stem-$RE_LABEL-$n.md"; n=$((n+1)); done
     fi
-    [ "${report_by:-}" = engine_file ] || cp "$out.result.md" "$report"
+    if [ "${report_by:-}" != engine_file ]; then
+      # the report starts at the reply's first known head line: an engine may glue a preamble in front of
+      # it ("Читаю бриф…VERDICT: task #1 — APPROVED", cursor in R3) and the reader judges by line one.
+      # The reply itself stays untouched in .out.result.md
+      trimmed=$(python3 - "$out.result.md" "$report" <<'PY'
+import re, sys
+src, dst = sys.argv[1:3]
+text = open(src, encoding="utf-8", errors="replace").read()
+heads = (r"VERDICT: task #|ACCEPT: task #|ACCEPTANCE FAILED: task #|READY FOR REVIEW: task #|COMMITTED: task #"
+         r"|QUESTION: task #|ESCALATION: |STUCK: task #|CI: \d|SPEC: \d|CROSS-TASK: \d|LEGACY: \d|RISK \d+: "
+         r"|RISKS: \d|RISK DECISIONS|ROUND \d+: |REVIEW BRIEF: |RESEARCH: |PLAN OK|FULL RUN: ")
+cut = 0
+if not re.match(r"\s*(?:%s)" % heads, text):
+    for m in re.finditer(heads, text[:1500]):
+        if m.start() and text[m.start() - 1] in "`\"'«":   # quoted in the preamble, not the head line
+            continue
+        cut = m.start()
+        break
+open(dst, "w", encoding="utf-8").write(text[cut:])
+print(cut or "")
+PY
+)
+    fi
   fi
 
   json_line ts "$ended" event "$status" role "$RE_ROLE" engine "$RE_ENGINE" task "$RE_TASK" \
     label "$RE_LABEL" pid "$$" exit "$rc" wall_s "$wall" session "$session" reason "$reason" \
-    out "$out" result "$out.result.md" report "$report" report_by "${report_by:-reply}" >> "$RE_LEDGER"
+    model "$model" out "$out" result "$out.result.md" report "$report" report_by "${report_by:-reply}" \
+    report_trimmed "${trimmed:-}" >> "$RE_LEDGER"
 
   {
     echo "status=$status"
@@ -218,7 +249,7 @@ while [ $# -gt 0 ]; do
     --session) session="$2"; shift 2 ;;
     --session-regex) sregex="$2"; shift 2 ;;
     --timeout) tmo="$2"; shift 2 ;;
-    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     --) shift; break ;;
     *) die "unknown option: $1 (the engine command goes after --)" ;;
   esac

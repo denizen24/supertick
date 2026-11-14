@@ -197,6 +197,22 @@ What happens next:
 
 Coders commit, each one only its own paths. The lead neither edits nor commits code itself.
 
+## Kimi and Codex (2.0 alpha, branch `universal`)
+
+From 2.0 the lead can also run in Kimi Code CLI or Codex CLI, and roles can be spread over different
+CLIs and models. Claude Code keeps working exactly as in 1.1.1.
+
+```bash
+tools/install-kimi.sh     # or tools/install-codex.sh
+```
+
+Then, in the host, the `supertick:setup` skill shows the installed CLIs and models, asks up to four
+questions (lead, team layout, second opinion, profile name) and writes a profile to
+`~/.config/supertick/config.json`; `~/.claude/agent-teams.json` is never touched. Start a run with the
+`supertick:team-feature` skill. Codex leads without its sandbox (`codex --sandbox danger-full-access`),
+because executors started from its shell inherit it; each executor gets its own sandbox instead.
+Levels, waiting, the `.git` guard and the known limits are in [docs/hosts.md](docs/hosts.md) (Russian).
+
 ## Engines
 
 The plugin works fully with Claude Code alone; the engine config is an optional enhancement.

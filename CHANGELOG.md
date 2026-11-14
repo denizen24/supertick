@@ -165,6 +165,21 @@
   round 3 by a DECISIONS.md entry and a `DECISION: … Re-check.` continuation of the same reviewer
   (the reviewer brief knows it); the final summary takes the test result from the ci-verifier report
   instead of running tests itself.
+- LEAD.md: the `Tooling:` line of a task is its own check command, not the whole suite (R5: `python3 -m
+  unittest` with no tests yet exits 5, acceptance FAIL on correct code).
+- `run-engine.sh`: the ledger names the model of each call (`model`, from `--model` / `-m` in the engine
+  command; acceptance R3 asks for engine and model). The report in `reports/` starts at the reply's first
+  protocol head line (`VERDICT:`, `ACCEPT:`, `READY FOR REVIEW:`, `CI:`… — not one quoted in backticks or
+  quotes); a preamble glued in front is cut and the count lands in `report_trimmed`, the reply stays as is
+  in `.out.result.md`. In R3 the cursor reviewer answered «Читаю бриф роли…VERDICT: task #1 — APPROVED»,
+  and acceptance rejected the report by its first line: one extra review and acceptance round.
+- `engine-config.py host` (step 0) finds CLIs the way setup does (every known CLI binary), not only the
+  binaries of engine presets: `opencode` has no engine preset yet and was reported as vanished from every
+  profile (R6).
+- LEAD.md: each ⚙️ line of `resolve` goes to the feed verbatim, on its own line (it carries the reason of
+  a substitution); the final summary lists engine substitutions (or says there were none). In R6 the lead
+  folded «unified-reviewer: движок cursor не найден» into a generic «reviewer — native» and the summary
+  did not mention the fallback.
 
 ## 1.1.1 — 2026-10-28
 

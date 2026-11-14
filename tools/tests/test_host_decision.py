@@ -132,6 +132,24 @@ class ThroughTheCommandLine(unittest.TestCase):
         got = self.run_host(None, "--host", "codex", "--available", "codex", "--non-interactive")
         self.assertEqual(got["action"], "stop")
 
+    def test_a_cli_without_an_engine_preset_is_found_like_setup_finds_it(self):
+        """R6: у opencode нет пресета движка, и шаг 0 считал его исчезнувшим в каждом прогоне."""
+        root = tmpdir(self)
+        (root / "bin").mkdir()
+        for cli in ("kimi", "opencode"):
+            stub = root / "bin" / cli
+            stub.write_text("#!/bin/sh\n", encoding="utf-8")
+            stub.chmod(0o755)
+        self.assertNotIn("opencode", ec.PRESETS, "у opencode появился пресет — тест больше ничего не проверяет")
+        prof = {**PROFILE, "sources": ["kimi", "opencode"], "installed": ["kimi", "opencode"]}
+        path = root / "c.json"
+        path.write_text(json.dumps({"active_profile": "team", "profiles": {"team": prof}}), encoding="utf-8")
+        res = subprocess.run([sys.executable, str(SCRIPT), "host", "--json", "--config", str(path), "--host", "kimi"],
+                             capture_output=True, text=True, env={"PATH": str(root / 'bin'), "HOME": str(root)})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        got = json.loads(res.stdout)
+        self.assertEqual((got["vanished"], got["new"]), ([], []))
+
     def test_profile_with_new_keys_passes_validate(self):
         path = tmpdir(self) / "c.json"
         path.write_text(json.dumps({"active_profile": "team", "profiles": {"team": PROFILE}}), encoding="utf-8")

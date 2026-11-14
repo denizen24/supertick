@@ -190,6 +190,21 @@ cd ../.. && python3 -m unittest discover -s tools/tests                 # све
 
 Коммиты делают кодеры, каждый только своих путей. Ведущий сам код не правит и не коммитит.
 
+## Kimi и Codex (2.0 alpha, ветка `universal`)
+
+С 2.0 ведущим может быть Kimi Code CLI или Codex CLI, а роли можно раздать по разным CLI и моделям. В
+Claude Code всё работает как в 1.1.1.
+
+```bash
+tools/install-kimi.sh     # или tools/install-codex.sh
+```
+
+Дальше в среде навык `supertick:setup` показывает установленные CLI и модели, задаёт до четырёх вопросов
+(ведущий, состав команды, второе мнение, имя профиля) и пишет профиль в `~/.config/supertick/config.json`;
+`~/.claude/agent-teams.json` не меняется. Прогон — навыком `supertick:team-feature`. Codex ведёт без своей
+песочницы (`codex --sandbox danger-full-access`): исполнители из его shell её наследуют, поэтому песочница
+у каждого исполнителя своя. Уровни, ожидание, сторож `.git` и ограничения — [docs/hosts.md](docs/hosts.md).
+
 ## Движки
 
 Плагин полностью работает на одном Claude Code; конфиг движков — необязательное расширение.

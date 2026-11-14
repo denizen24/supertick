@@ -764,8 +764,10 @@ def main(argv):
                 match = lead.get("host") == host and (not args.model or not lead.get("model") or lead["model"] == args.model)
             data = {"host": host, "source": source, "level": HOSTS[host]["level"],
                     "profile": name if prof is not None else None, "profile_lead": lead, "lead_matches": match}
+            # CLI ищутся как в setup (все CLI_BINARIES), а не только бинари пресетов: у opencode пресета
+            # движка ещё нет, и он «исчезал» из каждого профиля (R6, 121-567 V1)
             avail = ({b for b in args.available.split(",") if b} if args.available is not None
-                     else discover_available(cfg))
+                     else discover_available(cfg) | {b for b in CLI_BINARIES if system_available(b)})
             data.update(host_decision(cfg, host, name, prof, args.model, avail, setup_flag=args.setup,
                                       interactive=not args.non_interactive))
             emit(data, args.json, "\n".join(f"{k}: {v}" for k, v in data.items()))
