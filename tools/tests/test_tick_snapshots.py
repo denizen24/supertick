@@ -45,7 +45,8 @@ def run_tick(f, at=NOW):
     memory = json.loads((f.run / "state" / "supervisor.json").read_text(encoding="utf-8"))
     kept = {k: memory[k] for k in MEMORY_KEYS}
     text = f"$ tick --now {iso(at)}\n{proc.stdout}--- memory\n{json.dumps(kept, ensure_ascii=False, sort_keys=True, indent=1)}\n"
-    for root in {str(f.root), str(f.root.resolve())}:   # временный каталог каждый раз другой
+    # временный каталог каждый раз другой; длинный путь первым: на macOS /private/var/… содержит /var/…
+    for root in sorted({str(f.root), str(f.root.resolve())}, key=len, reverse=True):
         text = text.replace(root, "<ROOT>")
     return text
 
