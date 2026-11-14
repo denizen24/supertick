@@ -92,7 +92,21 @@ def report(host_flag=None, probe=False, probe_timeout=90, config=None, env=None)
         "clis": [{k: e[k] for k in ("cli", "installed", "version", "state", "detail", "path", "lead_capable",
                                     "engine_preset")} for e in d["clis"]],
         "sources": d["sources"], "probed": probe, "profile": profile, "step0": decision,
+        "busy": busy_rule(),
     }
+
+
+def busy_rule(platform=None, proc=None, which=None):
+    """Откуда тик берёт процессы для правила busy (тесты под корнем понижают молчание до P3), или почему выключено."""
+    import shutil
+    platform = platform or sys.platform
+    proc = Path("/proc") if proc is None else Path(proc)
+    which = which or shutil.which
+    if proc.is_dir():
+        return "busy: /proc"
+    if platform == "darwin":
+        return "busy: ps и lsof" if which("lsof") else "busy: выключено — на macOS нет lsof"
+    return f"busy: выключено — на {platform} нет /proc"
 
 
 STATE = {"responds": "отвечает", "not_logged_in": "не выполнен вход", "no_answer": "не ответил",
@@ -107,6 +121,8 @@ def text(r):
     c = r["config"]
     lines.append("конфиг: " + (", ".join(c["used"]) if c["used"] else "файлов нет (искал: " + ", ".join(c["searched"]) + ")"))
     lines.append(f"запись профилей: {c['write_target']}")
+    if r.get("busy"):
+        lines.append(r["busy"])
     for b in c["broken"]:
         lines.append(f"  ОШИБКА: {b} не читается (битый JSON)")
     for e in c["errors"]:

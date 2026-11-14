@@ -12,6 +12,6 @@ scripts/lead-probe.py  новый скрипт H2: проба пригоднос
 scripts/git-guard.py  новый скрипт H4: отпечаток .git/hooks и .git/config в начале прогона и сверка в конце (риск R11); в CHANGELOG
 references/models-catalog.json  новый файл F5: запасной список моделей для диалога подключения; в CHANGELOG
 scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: версия, среда, конфиг, CLI, профиль, шаг 0); в CHANGELOG
-scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); X1 — бюджеты при разделе ## Budgets, budgets/plan/postrun-check; в CHANGELOG
+scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); X1 — бюджеты при разделе ## Budgets, budgets/plan/postrun-check; X3 — busy на macOS (ps, lsof), cwd через resolve; в CHANGELOG
 scripts/supervisor-wait.sh  P1: --mode передаётся тику; в шапке — ожидание в фоне и на переднем плане; V1 — в --mode shared одно ожидание на прогон и --stop (без флага поведение прежнее); в CHANGELOG
 scripts/run-state.py  X1: карточка общего протокола (executor=) получает access из реестра ролей, поле commits; без executor= — как в 1.1.1; в CHANGELOG

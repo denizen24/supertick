@@ -48,7 +48,8 @@
 будил ведущего снова). Если под корнем репозитория (cwd процесса из /proc) идёт
 pytest / jest / yarn / npm / craco моложе окна молчания, `silent_too_long` понижается
 до P3 `busy` с командой процесса. Процесс старше окна — вероятно, зависший, — не
-спасает. Нет /proc (не Linux) — правило работает как раньше.
+спасает. macOS — процессы из `ps`, cwd из `lsof` (X3); нет ни /proc, ни lsof — правило
+выключено, причина — в BUSY_NOTE (её показывает doctor).
 
 Письма участникам (mail/<имя>/, не lead): вердикт рецензента кодеру, REVIEW кодера
 рецензенту. Письмо доставлено, если адресат отметил его в mail/<имя>/.seen
@@ -322,12 +323,62 @@ def touched_since(root, files, since):
 BUSY_CMD = re.compile(r"^(pytest|py\.test|jest|yarn|npm|craco)(\.c?js)?$")
 
 
+BUSY_NOTE = {}   # почему правило busy выключено на этой машине (нет /proc и нет ps+lsof) — для doctor и снимка
+
+
+def mac_processes(runner=None):
+    """macOS (121-567, X3): `ps -axo pid=,lstart=,command=` и cwd кандидатов через `lsof -a -d cwd -p … -Fn`.
+    Кандидаты — только процессы тестов и сборки (BUSY_CMD), чтобы не звать lsof на каждый процесс машины.
+    Нет lsof — пустой список и BUSY_NOTE (правило выключено). argv — команда, разрезанная по пробелам."""
+    import shutil
+    import subprocess
+    run = runner or (lambda argv: subprocess.run(argv, capture_output=True, text=True, timeout=20))
+    if runner is None and not shutil.which("lsof"):
+        BUSY_NOTE["busy"] = "правило busy выключено: на macOS нет lsof"
+        return []
+    try:
+        ps = run(["ps", "-axo", "pid=,lstart=,command="])
+    except (OSError, ValueError):
+        return []
+    cands = {}
+    for line in (ps.stdout or "").splitlines():
+        m = re.match(r"^\s*(\d+)\s+(\w{3} \w{3}\s+\d+ \d\d:\d\d:\d\d \d{4})\s+(.+)$", line)
+        if not m:
+            continue
+        argv = m.group(3).split()
+        hit = any(BUSY_CMD.match(Path(a).name) for a in argv[:4]) or \
+            any(a == "-m" and argv[i + 1:i + 2] == ["pytest"] for i, a in enumerate(argv))
+        if not hit:
+            continue
+        try:   # lstart — местное время машины
+            started = datetime.strptime(" ".join(m.group(2).split()), "%a %b %d %H:%M:%S %Y").astimezone()
+        except ValueError:
+            continue
+        cands[int(m.group(1))] = {"pid": int(m.group(1)), "argv": argv, "started": started, "cwd": ""}
+    if not cands:
+        return []
+    try:
+        lsof = run(["lsof", "-a", "-d", "cwd", "-p", ",".join(map(str, cands)), "-Fn"])
+    except (OSError, ValueError):
+        return []
+    pid = None
+    for line in (lsof.stdout or "").splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+        elif line.startswith("n") and pid in cands:
+            cands[pid]["cwd"] = line[1:]
+    return [p for p in cands.values() if p["cwd"]]
+
+
 def list_processes():
-    """Процессы машины из /proc: [{pid, cwd, argv, started}]. Нет /proc — пустой список.
+    """Процессы машины: Linux — /proc, macOS — ps и lsof; [{pid, cwd, argv, started}]. Иначе пустой список.
 
     Вынесено отдельно, чтобы тест мог подменить список процессов."""
     proc = Path("/proc")
     if not proc.is_dir():
+        if sys.platform == "darwin":
+            return mac_processes()
+        BUSY_NOTE["busy"] = f"правило busy выключено: на {sys.platform} нет /proc"
         return []
     try:
         btime = next(int(l.split()[1]) for l in (proc / "stat").read_text().splitlines() if l.startswith("btime "))
@@ -366,7 +417,10 @@ def busy_command(root, now, window_sec):
         argv = p.get("argv") or []
         if p.get("pid") in me or any("supervisor-" in a for a in argv):
             continue
-        cwd = Path(p.get("cwd") or "/")
+        try:   # macOS: /var/folders → /private/var/folders; корень уже resolve(), cwd — тоже
+            cwd = Path(p.get("cwd") or "/").resolve()
+        except OSError:
+            continue
         if cwd != base and base not in cwd.parents:
             continue
         started = p.get("started")

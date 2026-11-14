@@ -139,6 +139,15 @@
   `-<label>` copy of the reply is made; the reply stays in `.out.result.md`. A report that existed before
   the call is still never overwritten.
 
+### X3 — `busy` on macOS
+
+- The tick's `busy` rule (a test or build run under the repository root downgrades `silent_too_long` to P3) works on
+  macOS: processes from `ps -axo pid=,lstart=,command=`, the working directory of test and build candidates from
+  `lsof -a -d cwd -p … -Fn`. No `lsof` (or another OS without `/proc`) — the rule is off and `supertick-doctor.py`
+  says why (`busy: /proc | ps и lsof | выключено — …`). Linux behaviour is unchanged (tick snapshots).
+- The process working directory is compared after `resolve()`, like the root: on macOS `/var/folders/…` is
+  `/private/var/folders/…`, and the first macOS CI run failed on exactly that.
+
 ### X1 — budgets, `plan`, `postrun-check`
 
 - Budgets in `state.md` (`## Budgets`, printed by `supervisor-tick.py budgets <complexity> [--budget=…]`): `observe` by
