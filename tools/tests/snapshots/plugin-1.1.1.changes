@@ -15,7 +15,7 @@ scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: в
 scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); X1 — бюджеты при разделе ## Budgets, budgets/plan/postrun-check; X3 — busy на macOS (ps, lsof), cwd через resolve; X2 — зеркало state/run.json в --mode shared, validate-run; в CHANGELOG
 scripts/supervisor-wait.sh  P1: --mode передаётся тику; в шапке — ожидание в фоне и на переднем плане; V1 — в --mode shared одно ожидание на прогон и --stop (без флага поведение прежнее); в CHANGELOG
 scripts/run-state.py  X1: карточка общего протокола (executor=) получает access из реестра ролей, поле commits; без executor= — как в 1.1.1; в CHANGELOG
-.claude-plugin/plugin.json  версия 2.0.0-beta.1 — одна версия набора на все среды, Claude Code берёт новую сборку из кэша по версии; в CHANGELOG
+.claude-plugin/plugin.json  версия 2.0.0 (до 15.11 — 2.0.0-beta.1) — одна версия набора на все среды, Claude Code берёт новую сборку из кэша по версии; в CHANGELOG
 agents/architect.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG
 agents/coder.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG
 agents/tech-lead.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG

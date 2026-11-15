@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased — 121-604 language of the human-facing output
+## 2.0.0 — 2026-11-15
+
+First stable 2.0: the four-host team plugin from the `universal` branch (121-567) plus the language setting
+(121-604). Versions of all four bundles are `2.0.0`; no beta suffix from now on.
+
+### Language of the human-facing output (121-604)
 
 - One setting picks the language (`ru` | `en`) of what a person reads: the lead's feed, questions, `PLAN.md`,
   `VERIFICATION_PLAN.md`, `DECISIONS.md`, `LEGACY_REPORT.md`, the summary, and the `supertick-doctor.py` /
@@ -19,8 +24,11 @@
   resolved language and passes `--lang` on.
 - Without any setting the feed follows the language of the request, so a Russian request still gets a Russian
   feed; scripts with no profile and a `C` locale now print English.
+- The language never changes commit messages: the plan's `Commit:` line keeps the project's `git log` style; template
+  explanations follow `LANG`, while tick fields (`## Task <id>:`, `Status:`, statuses) stay as they are. Found in the
+  live SIMPLE run with `--lang=en` (ALL_PASS 11/11, English feed), where the lead wrote "message in English".
 
-## Unreleased — branch `universal` (121-567)
+### Four hosts — branch `universal` (121-567)
 
 - Repository layout, no change to the plugin behaviour: shared scripts live in `core/scripts/`, Claude Code
   texts, agents and manifest in `hosts/claude-code/`, and `tools/build-host.py claude-code` builds

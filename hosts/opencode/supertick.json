@@ -1,5 +1,5 @@
 {
   "name": "supertick",
-  "version": "2.0.0-beta.1",
+  "version": "2.0.0",
   "description": "supertick для OpenCode: командный прогон по общему протоколу, навыки supertick-team-feature и supertick-setup, агенты ролей supertick-<роль>"
 }
