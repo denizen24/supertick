@@ -2,17 +2,23 @@
 # Один путь на строку (от plugins/supertick/), после пробела — причина и запись в CHANGELOG.
 # Пока файл пуст, сборка равна 1.1.1 побайтно. Путь отсюда, который на деле не расходится, — ошибка:
 # тест требует убрать устаревшее исключение.
-scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host; H4 — роли Codex на движке codex; пресет opencode); в CHANGELOG
+scripts/engine-config.py  новый скрипт F3 (engine-config.py: конфиг движков, профили, resolve/argv/validate/host; H4 — роли Codex на движке codex; пресет opencode); 121-604 — язык человека: команда lang, ключ language, строки ⚙️ на ru/en; в CHANGELOG
 scripts/run-engine.sh  F4: ответ из JSONL kimi 2.x (последняя реплика assistant, если нет поля result); в шапке движки claude и mock; H4 — файл отчёта, созданный исполнителем, и есть отчёт (report_by); V1 — модель вызова в ledger, отчёт с первой строки-шапки (report_trimmed); разбор JSON opencode; в CHANGELOG
 scripts/mock-engine.py  новый скрипт F4: мок-движок (ok|fail|hang|no-session|is_error); в CHANGELOG
 engines/kimi-read.md  новый файл F4: профиль Kimi только на чтение для --agent-file; в CHANGELOG
 engines/opencode-supertick.json  новый файл F4 после S0-OC: агент opencode только на чтение (OPENCODE_CONFIG); в CHANGELOG
-scripts/supertick-setup.py  новый скрипт F5 (supertick-setup.py: discover, диалог, plan/apply, launch; H2 — lead-probe; V1 — полный профиль, роли без назначения как null); в CHANGELOG
+scripts/supertick-setup.py  новый скрипт F5 (supertick-setup.py: discover, диалог, plan/apply, launch; H2 — lead-probe; V1 — полный профиль, роли без назначения как null); 121-604 — вопрос о языке, language в профиле, тексты на ru/en; в CHANGELOG
 scripts/lead-probe.py  новый скрипт H2: проба пригодности ведущего (стенд, мок-сценарий, проверки по файлам; H4 — Codex и сторож .git); в CHANGELOG
 scripts/git-guard.py  новый скрипт H4: отпечаток .git/hooks и .git/config в начале прогона и сверка в конце (риск R11); в CHANGELOG
 references/models-catalog.json  новый файл F5: запасной список моделей для диалога подключения; в CHANGELOG
-scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: версия, среда, конфиг, CLI, профиль, шаг 0); в CHANGELOG
+scripts/supertick-doctor.py  новый скрипт F7 (supertick-doctor.py: версия, среда, конфиг, CLI, профиль, шаг 0); 121-604 — строка языка, тексты на ru/en, --lang; в CHANGELOG
 scripts/supervisor-tick.py  P1: режим общего протокола --mode shared (без флага поведение прежнее, снапшоты F1); X1 — бюджеты при разделе ## Budgets, budgets/plan/postrun-check; X3 — busy на macOS (ps, lsof), cwd через resolve; X2 — зеркало state/run.json в --mode shared, validate-run; в CHANGELOG
 scripts/supervisor-wait.sh  P1: --mode передаётся тику; в шапке — ожидание в фоне и на переднем плане; V1 — в --mode shared одно ожидание на прогон и --stop (без флага поведение прежнее); в CHANGELOG
 scripts/run-state.py  X1: карточка общего протокола (executor=) получает access из реестра ролей, поле commits; без executor= — как в 1.1.1; в CHANGELOG
 .claude-plugin/plugin.json  версия 2.0.0-beta.1 — одна версия набора на все среды, Claude Code берёт новую сборку из кэша по версии; в CHANGELOG
+agents/architect.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG
+agents/coder.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG
+agents/tech-lead.md  121-604: строка LANG: в шапке и язык записей для человека; в CHANGELOG
+skills/team-feature/SKILL.md  121-604: шаг 0c (язык), --lang, лента на языке Language:; в CHANGELOG
+skills/team-feature/references/phase1-planning.md  121-604: LANG: в шапке промптов, Language: в state.md; в CHANGELOG
+skills/interviewed-team-feature/SKILL.md  121-604: язык разговора и брифа, --lang при передаче команде; в CHANGELOG

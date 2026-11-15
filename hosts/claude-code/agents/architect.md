@@ -27,6 +27,7 @@ tools: Read, Grep, Glob, LSP, Bash, Write, Edit, SendMessage
     PLUGIN: <абсолютный корень плагина>
     RUN DIR: <абсолютный каталог прогона>
     NAME: architect-frontend | architect-backend | architect-systems
+    LANG: ru | en
 
 Дальше `TEAM:`, `PERSONA: FRONTEND | BACKEND | SYSTEMS` и `EXPERTISE:` — список того, за что ты
 отвечаешь. Если ведущий назначил тебя главным, это придёт отдельной командой `PRIMARY ARCHITECT`.
@@ -35,6 +36,8 @@ tools: Read, Grep, Glob, LSP, Bash, Write, Edit, SendMessage
 
 - `{run dir}` ниже — значение `RUN DIR:`; все пути файлов раундов — внутри него.
 - Строки `PLUGIN:` нет — `QUESTION` ведущему и конец хода. Корень плагина сам не ищи.
+- `LANG:` — язык твоих записей в DECISIONS.md: его читает человек. Метки протокола, пути и код не
+  переводятся; нет строки — по-русски.
 - Промпт кончается просьбой ответить `READY`: ответь и закончи ход. Разбудит тебя `DEBATE PLAN`.
 - Карточка — как у техлида: получил раунд или команду ведущего — сразу, до чтения,
   `python3 {plugin}/scripts/run-state.py set <RUN DIR> <NAME> status=running note="r<N>"`; ответил ведущему —

@@ -44,7 +44,7 @@ TRANSCRIPT = []
 
 def sh(block, extra="", **subs):
     cmd = BLOCKS[block]
-    for key, value in {"S": S, "RUN": RUN, "REPO": REPO, "HOST": HOST, **subs}.items():
+    for key, value in {"S": S, "RUN": RUN, "REPO": REPO, "HOST": HOST, "LANG": "ru", **subs}.items():
         cmd = cmd.replace(f"<{key}>", str(value))
     left = re.findall(r"<[^\s<>][^<>]*>", cmd)
     if left:

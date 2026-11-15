@@ -54,7 +54,7 @@ class Bench:
         self.bin = self.home / "bin"
         self.bin.mkdir()
         executable(self.bin / host, f'#!/bin/sh\nFAKE_LEAD_HOST={host} exec {sys.executable} {FAKE} "$@"\n')
-        self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ.get('PATH', '')}", TZ="UTC")
+        self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ.get('PATH', '')}", TZ="UTC", SUPERTICK_LANG="ru")
         self.env.pop("CLAUDECODE", None)
 
     def probe(self, broken="none", timeout=120, keep=None):
@@ -185,9 +185,9 @@ class SetupIntegration(unittest.TestCase):
 
         def ask(text):
             asked.append(text)
-            return {0: "1", 1: "", 2: "1"}.get(len(asked) - 1, "")
+            return {0: "1", 1: "1", 2: "", 3: "1"}.get(len(asked) - 1, "")   # первый вопрос — язык (121-604)
         ss.dialog(d, ask, print, "kimi", cfg)
-        self.assertIn(f"проверена как ведущий {stored['date']}", asked[0])
+        self.assertIn(f"проверена как ведущий {stored['date']}", asked[1])
         # discover показывает итоги проб
         disc = self.setup_cli("discover", "--no-probe", "--json")
         self.assertEqual(json.loads(disc.stdout)["lead_probes"][0]["result"], "passed")

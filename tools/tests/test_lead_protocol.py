@@ -116,7 +116,7 @@ class Lead:
 
     def sh(self, block, extra="", **subs):
         cmd = self.blocks[block]
-        subs = {"S": str(SCRIPTS), "RUN": str(self.run_dir), "REPO": str(self.repo), "HOST": "kimi", **subs}
+        subs = {"S": str(SCRIPTS), "RUN": str(self.run_dir), "REPO": str(self.repo), "HOST": "kimi", "LANG": "ru", **subs}
         for key, value in subs.items():
             cmd = cmd.replace(f"<{key}>", str(value))
         left = PLACEHOLDER.findall(cmd)
@@ -180,7 +180,7 @@ class LeadText(unittest.TestCase):
         text = LEAD.read_text(encoding="utf-8")
         self.assertEqual(text.count("```bash"), len(BLOCK.findall(text)), "блок bash без метки # lead:<id>")
         self.assertTrue({"root", "second-run", "host", "resolve", "run-dir", "card", "argv", "launch", "resume",
-                         "take", "wait", "tick", "diff", "accept-diff"} <= set(lead_blocks()))
+                         "take", "wait", "tick", "diff", "accept-diff", "lang"} <= set(lead_blocks()))
 
     def test_scripts_named_in_lead_exist(self):
         for script in set(re.findall(r"<S>/([\w.-]+)", LEAD.read_text(encoding="utf-8"))):
@@ -205,6 +205,8 @@ class TwoTasksThroughShell(unittest.TestCase):
         host = json.loads(lead.sh("host").stdout)
         self.assertEqual(host["action"], "line")
         self.assertIn("coder", lead.sh("resolve").stdout)
+        got = lead.sh("lang", **{"ru|en": "en"}).stdout   # 121-604: язык человека — из запроса, если не задан
+        self.assertTrue(got.startswith("LANG: en"), got)
 
         lead.plan({"1": "TODO", "2": "TODO"})
         verdicts = {}

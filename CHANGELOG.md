@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — 121-604 language of the human-facing output
+
+- One setting picks the language (`ru` | `en`) of what a person reads: the lead's feed, questions, `PLAN.md`,
+  `VERIFICATION_PLAN.md`, `DECISIONS.md`, `LEGACY_REPORT.md`, the summary, and the `supertick-doctor.py` /
+  `supertick-setup.py` output. Role prompts stay Russian (D9); protocol tokens (`DONE:`, `VERDICT:` …), template
+  headings, paths, commands and commit messages do not change.
+- Resolution order: `--lang` → `$SUPERTICK_LANG` → active profile `language` → top-level `language` → language of the
+  user's request (the lead passes `--request-lang`) → locale (`LC_ALL` → `LC_MESSAGES` → `LANG`; `C`/`POSIX` give
+  nothing) → `en`. New `engine-config.py lang` prints `LANG: <lang> (<source>)`; `validate` checks the key.
+- `supertick-setup.py`: the first dialog question is the language (asked in both languages, the resolved one
+  first); `--answers` accepts `"language"`, which is written to the profile; `--lang` on every command.
+- `supertick-doctor.py`: a `language:` line with its source, `--lang`. `engine-config.py resolve --lang` gives the
+  ⚙️ feed lines in that language.
+- Prompts: a fourth header line `LANG:`; the lead resolves it at step 0c (Claude Code) or `lead:lang` (shared
+  protocol) and keeps it in `state.md` as `Language:`; coder, tech lead and architect write their human-facing files
+  in it. `/supertick:team-feature --lang=ru|en`; `/supertick:interviewed-team-feature` runs the interview in the
+  resolved language and passes `--lang` on.
+- Without any setting the feed follows the language of the request, so a Russian request still gets a Russian
+  feed; scripts with no profile and a `C` locale now print English.
+
 ## Unreleased — branch `universal` (121-567)
 
 - Repository layout, no change to the plugin behaviour: shared scripts live in `core/scripts/`, Claude Code

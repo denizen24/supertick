@@ -41,7 +41,8 @@ class Env:
         for name, stub in clis.items():
             executable(self.bin / name, stub.format(name=name))
         self.legacy = self.home / ".claude" / "agent-teams.json"
-        self.env = {"PATH": str(self.bin), "HOME": str(self.home), "LANG": "C.UTF-8"}
+        # SUPERTICK_LANG=ru: тексты сверяются по-русски; по локали C.UTF-8 вывод был бы на английском (121-604)
+        self.env = {"PATH": str(self.bin), "HOME": str(self.home), "LANG": "C.UTF-8", "SUPERTICK_LANG": "ru"}
 
     def run(self, *args, extra_env=None):
         env = dict(self.env, **(extra_env or {}))
@@ -340,6 +341,7 @@ class Dialog(unittest.TestCase):
         self.d = Env(self, kimi=OK_STUB, codex=OK_STUB, **{"cursor-agent": OK_STUB}).discover()
 
     def run_dialog(self, replies, current=None):
+        ss.ec.OUTPUT_LANG = "ru"   # «1» в вопросе о языке — предложенный язык; предлагаем русский (121-604)
         it = iter(replies)
         asked = []
 
@@ -349,43 +351,45 @@ class Dialog(unittest.TestCase):
         return ss.dialog(self.d, ask, lambda *_: None, current), asked
 
     def test_split_dialog_builds_answers_that_plan_accepts(self):
-        # ведущий 1 (codex первым в списке по порядку CLIS: kimi), имя, раскладка 2, кодер 1, рецензент 2, второе мнение 3
-        answers, asked = self.run_dialog(["1", "team", "2", "1", "2", "3"], current="kimi")
+        # язык 1 (русский), ведущий 1 (codex первым в списке по порядку CLIS: kimi), имя, раскладка 2, кодер 1, рецензент 2,
+        # второе мнение 3
+        answers, asked = self.run_dialog(["1", "1", "team", "2", "1", "2", "3"], current="kimi")
         self.assertEqual(answers["lead"]["host"], "kimi")
         self.assertEqual(answers["layout"], "split")
         self.assertEqual(answers["profile"], "team")
-        self.assertIn("текущий сеанс", asked[0])
+        self.assertEqual(answers["language"], "ru")
+        self.assertIn("текущий сеанс", asked[1])
         plan = ss.build_plan(answers, self.d, {})
         self.assertEqual(plan["problems"], [])
 
     def test_questions_have_at_most_four_options(self):
-        _, asked = self.run_dialog(["1", "", "1", "1"])
+        _, asked = self.run_dialog(["1", "1", "", "1", "1"])
         for text in asked:
             self.assertLessEqual(sum(1 for line in text.splitlines() if line.strip()[:2].rstrip(".").isdigit() and line.strip()[0] != "0"), 4)
 
     def test_engine_question_offers_four_options_and_no_more(self):
         self.d = Env(self, kimi=OK_STUB, codex=OK_STUB, claude=OK_STUB, grok=OK_STUB, **{"cursor-agent": OK_STUB}).discover()
-        _, asked = self.run_dialog(["1", "", "2", "1", "1", "1"])
+        _, asked = self.run_dialog(["1", "1", "", "2", "1", "1", "1"])
         engine_q = next(a for a in asked if a.startswith("Кто пишет код"))
         numbered = [l for l in engine_q.splitlines() if l.strip()[:1].isdigit() and not l.strip().startswith("0.")]
         self.assertEqual(len(numbered), 4)
 
     def test_single_source_skips_split_and_second_opinion(self):
         self.d = Env(self, kimi=OK_STUB).discover()
-        answers, asked = self.run_dialog(["1", "", "1"])
+        answers, asked = self.run_dialog(["1", "1", "", "1"])
         self.assertEqual(answers["layout"], "all-on-lead")
         self.assertNotIn("second_opinion", answers)
-        self.assertEqual(len(asked), 3)
-        self.assertNotIn("разных моделях", asked[2])
+        self.assertEqual(len(asked), 4)
+        self.assertNotIn("разных моделях", asked[3])
 
     def test_no_lead_capable_cli_stops_with_a_hint(self):
         self.d = Env(self, grok=OK_STUB).discover()
         with self.assertRaises(ss.SetupError):
-            self.run_dialog([])
+            self.run_dialog(["1"])
 
     def test_bad_answer_is_an_error_not_a_guess(self):
         with self.assertRaises(ss.SetupError):
-            self.run_dialog(["9"])
+            self.run_dialog(["1", "9"])
 
     def test_setup_without_terminal_refuses_and_points_to_apply(self):
         res = Env(self, kimi=OK_STUB).run("setup")

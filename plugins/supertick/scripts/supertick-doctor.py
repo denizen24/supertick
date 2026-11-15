@@ -31,6 +31,7 @@ def _load(name, file):
 
 setup = _load("supertick_setup", "supertick-setup.py")
 ec = setup.ec
+T = ec.T   # текст для человека на языке ec.OUTPUT_LANG (121-604)
 
 # Манифесты наборов по средам: первый найденный в корне даёт версию.
 MANIFESTS = (".claude-plugin/plugin.json", "kimi.plugin.json", ".codex-plugin/plugin.json", "supertick.json", "package.json")
@@ -55,7 +56,7 @@ def bundle_version(root):
     return "", ""
 
 
-def report(host_flag=None, probe=False, probe_timeout=90, config=None, env=None):
+def report(host_flag=None, probe=False, probe_timeout=90, config=None, env=None, lang=None):
     env = os.environ if env is None else env
     root = bundle_root(env)
     version, manifest = bundle_version(root)
@@ -67,6 +68,8 @@ def report(host_flag=None, probe=False, probe_timeout=90, config=None, env=None)
     paths = ec.config_paths(config, env)
     cfg, load_warn, used = ec.load_config(paths)
     errors, warnings = ec.validate(cfg)
+    language = ec.resolve_language(cfg, flag=lang, env=env)
+    ec.OUTPUT_LANG = language["lang"]
     d = setup.discover(probe=probe, probe_timeout=probe_timeout, current_host=host)
     name, prof = ec.active_profile(cfg)
     profile = None
@@ -84,7 +87,7 @@ def report(host_flag=None, probe=False, probe_timeout=90, config=None, env=None)
         decision = ec.host_decision(cfg, host, name, prof, None, avail)
     return {
         "version": version, "manifest": manifest, "root": str(root),
-        "host": host, "host_source": source, "level": level,
+        "host": host, "host_source": source, "level": level, "language": language,
         "config": {"searched": [str(p) for p in paths], "used": used,
                    "write_target": str(setup.target_path(env)),
                    "broken": [w["detail"] for w in load_warn],
@@ -105,56 +108,66 @@ def busy_rule(platform=None, proc=None, which=None):
     if proc.is_dir():
         return "busy: /proc"
     if platform == "darwin":
-        return "busy: ps и lsof" if which("lsof") else "busy: выключено — на macOS нет lsof"
-    return f"busy: выключено — на {platform} нет /proc"
+        return "busy: ps и lsof" if which("lsof") else T("busy: выключено — на macOS нет lsof", "busy: off — no lsof on macOS")
+    return T(f"busy: выключено — на {platform} нет /proc", f"busy: off — no /proc on {platform}")
 
 
-STATE = {"responds": "отвечает", "not_logged_in": "не выполнен вход", "no_answer": "не ответил",
-         "error": "ошибка пробы", "unchecked": "установлен (проба не запускалась)", "not_installed": "не установлен"}
+def state_label(state):
+    return {"responds": T("отвечает", "responds"), "not_logged_in": T("не выполнен вход", "not logged in"),
+            "no_answer": T("не ответил", "no answer"), "error": T("ошибка пробы", "probe error"),
+            "unchecked": T("установлен (проба не запускалась)", "installed (not probed)"),
+            "not_installed": T("не установлен", "not installed")}[state]
 
 
 def text(r):
-    lines = [f"supertick {r['version'] or 'версия неизвестна'}" + (f" ({r['manifest']})" if r["manifest"] else ""),
-             f"корень: {r['root']}",
-             f"среда: {r['host']} ({r['level']}, по {r['host_source']})" if r["host"]
-             else f"среда: не определена — {r['host_source']}"]
+    lines = [f"supertick {r['version'] or T('версия неизвестна', 'version unknown')}" + (f" ({r['manifest']})" if r["manifest"] else ""),
+             T("корень: ", "root: ") + r["root"],
+             T(f"среда: {r['host']} ({r['level']}, по {r['host_source']})", f"host: {r['host']} ({r['level']}, by {r['host_source']})")
+             if r["host"] else T(f"среда: не определена — {r['host_source']}", f"host: unknown — {r['host_source']}")]
+    if r.get("language"):
+        lines.append(T("язык: ", "language: ") + f"{r['language']['lang']} ({r['language']['source']})")
     c = r["config"]
-    lines.append("конфиг: " + (", ".join(c["used"]) if c["used"] else "файлов нет (искал: " + ", ".join(c["searched"]) + ")"))
-    lines.append(f"запись профилей: {c['write_target']}")
+    lines.append(T("конфиг: ", "config: ") + (", ".join(c["used"]) if c["used"] else
+                 T("файлов нет (искал: ", "no files (searched: ") + ", ".join(c["searched"]) + ")"))
+    lines.append(T("запись профилей: ", "profiles written to: ") + c["write_target"])
     if r.get("busy"):
         lines.append(r["busy"])
     for b in c["broken"]:
-        lines.append(f"  ОШИБКА: {b} не читается (битый JSON)")
+        lines.append(T(f"  ОШИБКА: {b} не читается (битый JSON)", f"  ERROR: {b} is unreadable (broken JSON)"))
     for e in c["errors"]:
-        lines.append(f"  ОШИБКА: {e['path']}: {e['message']}")
+        lines.append(T("  ОШИБКА: ", "  ERROR: ") + f"{e['path']}: {e['message']}")
     for w in c["warnings"]:
-        lines.append(f"  предупреждение: {w['path']}: {w['message']}")
+        lines.append(T("  предупреждение: ", "  warning: ") + f"{w['path']}: {w['message']}")
     if c["ok"]:
-        lines.append("  validate: в порядке")
+        lines.append(T("  validate: в порядке", "  validate: OK"))
     lines.append("CLI:")
     for e in r["clis"]:
         extra = ", ".join(x for x in (e["version"], e["detail"]) if x)
-        lead = " · может быть ведущим" if e["lead_capable"] else (" · ведущим не проверен" if e["lead_capable"] is None and e["installed"] else "")
-        lines.append(f"  {e['cli']}: {STATE[e['state']]}" + (f" ({extra})" if extra else "") + lead)
+        lead = T(" · может быть ведущим", " · can lead") if e["lead_capable"] else (
+            T(" · ведущим не проверен", " · not checked as lead") if e["lead_capable"] is None and e["installed"] else "")
+        lines.append(f"  {e['cli']}: {state_label(e['state'])}" + (f" ({extra})" if extra else "") + lead)
     p = r["profile"]
     if p is None:
-        lines.append("профиль: нет активного")
+        lines.append(T("профиль: нет активного", "profile: none active"))
     elif not p["found"]:
-        lines.append(f"профиль: {p['name']} указан, но в profiles его нет")
+        lines.append(T(f"профиль: {p['name']} указан, но в profiles его нет", f"profile: {p['name']} is set but missing from profiles"))
     else:
         lead = p["lead"] or {}
         probe = p["lead_probe"]
-        probe_txt = "не запускалась" if not probe else (
+        probe_txt = T("не запускалась", "not run") if not probe else (
             f"{probe.get('result', '?')} {probe.get('date', '')} {probe.get('version', '')}".strip()
             if isinstance(probe, dict) else str(probe))
-        fp = {True: "набор CLI тот же", False: "набор CLI изменился", None: "отпечатка нет"}[p["fingerprint_matches"]]
-        lines.append(f"профиль: {p['name']} — ведущий {lead.get('host', '?')}"
-                     + (f"/{lead['model']}" if lead.get("model") else "")
-                     + f", ролей назначено {p['roles']}, подтверждён {p['confirmed_at'] or '—'}, {fp}")
-        lines.append(f"  проба ведущего: {probe_txt}")
+        fp = {True: T("набор CLI тот же", "same CLI set"), False: T("набор CLI изменился", "CLI set changed"),
+              None: T("отпечатка нет", "no fingerprint")}[p["fingerprint_matches"]]
+        model = f"/{lead['model']}" if lead.get("model") else ""
+        lines.append(T(f"профиль: {p['name']} — ведущий {lead.get('host', '?')}{model}"
+                       f", ролей назначено {p['roles']}, подтверждён {p['confirmed_at'] or '—'}, {fp}",
+                       f"profile: {p['name']} — lead {lead.get('host', '?')}{model}"
+                       f", roles assigned {p['roles']}, confirmed {p['confirmed_at'] or '—'}, {fp}"))
+        lines.append(T("  проба ведущего: ", "  lead probe: ") + probe_txt)
     s = r["step0"]
     if s:
-        lines.append(f"шаг 0: {s['action']}" + (f" — {s['launch']}" if s.get("launch") else "")
+        lines.append(T("шаг 0: ", "step 0: ") + s["action"] + (f" — {s['launch']}" if s.get("launch") else "")
                      + (f" — {s['command']}" if s.get("command") else ""))
         lines += ["  " + line for line in s["lines"]]
     return "\n".join(lines)
@@ -167,8 +180,13 @@ def main(argv):
     ap.add_argument("--probe-timeout", type=int, default=90)
     ap.add_argument("--config", action="append")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--lang", help="язык вывода: ru | en (по умолчанию SUPERTICK_LANG, профиль, конфиг, локаль, en)")
     args = ap.parse_args(argv)
-    r = report(args.host, args.probe, args.probe_timeout, args.config)
+    try:
+        r = report(args.host, args.probe, args.probe_timeout, args.config, lang=args.lang)
+    except ValueError as exc:
+        print(f"supertick-doctor: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(r, ensure_ascii=False) if args.json else text(r))
     return 0 if r["config"]["ok"] else 1
 

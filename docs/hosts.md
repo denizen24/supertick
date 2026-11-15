@@ -82,9 +82,11 @@ cd <репозиторий> && opencode run --format json -m opencode/glm-5.3-fl
 ## Подключение: профиль
 
 Навык setup (в Kimi и Codex — `supertick:setup`, в OpenCode — `supertick-setup`) показывает установленные CLI и
-их модели, задаёт до четырёх вопросов и пишет профиль в `~/.config/supertick/config.json` (или в
+их модели, задаёт до пяти вопросов и пишет профиль в `~/.config/supertick/config.json` (или в
 `$SUPERTICK_CONFIG`):
 
+- **язык** — русский или English: на нём лента, вопросы, PLAN.md, DECISIONS.md, итог и вывод doctor/setup
+  (ключ `language` профиля; промпты ролей и метки протокола от него не зависят);
 - **ведущий** — среда и модель;
 - **состав команды** — «всё на модели ведущего», «код и ревью на разных моделях» или «по группам ролей»
   (кодеры, рецензент, архитекторы и техлид, исследователи, проверяющие);
@@ -112,7 +114,11 @@ python3 <корень набора>/scripts/supertick-setup.py apply --answers a
 Kimi `kimi-code/k3`, Codex `gpt-5.6-sol`, OpenCode `opencode/glm-5.3-flash`.
 
 Аргументы прогона те же, что в Claude Code: `--complexity=simple|medium|complex`, `--coders=N`,
-`--no-research`, `--force-team`, `--engines=off`.
+`--no-research`, `--force-team`, `--engines=off`, `--lang=ru|en`.
+
+**Язык.** `engine-config.py lang` выбирает его так: `--lang` → `$SUPERTICK_LANG` → `language` активного профиля →
+`language` верхнего уровня → язык запроса пользователя → локаль (`LC_ALL`, `LC_MESSAGES`, `LANG`; `C` и `POSIX` не
+считаются) → `en`. Без настройки лента идёт на языке запроса.
 
 ## Чем отличается от Claude Code
 

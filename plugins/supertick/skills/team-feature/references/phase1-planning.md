@@ -462,6 +462,7 @@ FULL RUN: <in phase 3 | deferred to release>
 ## Worktree: <путь рабочего дерева и ветка, или `main tree`>
 ## Tracker: <карточки трекера, которые закрывает прогон, или `none`>
 Plugin root: <абсолютный корень плагина>
+Language: <ru|en> (<откуда: flag | profile:… | config | request | locale | default>)
 
 ## Инструкции фазы 2
 1. Спать на цикле; проснувшись — действия тика по приоритетам (phase2-monitoring.md).
@@ -521,13 +522,17 @@ Plugin root: <абсолютный корень плагина>
 
 ### Промпты спавна
 
-Каждый промпт начинается одной и той же шапкой, три строки, каждая с новой строки:
+Каждый промпт начинается одной и той же шапкой, четыре строки, каждая с новой строки:
 
 ```
 PLUGIN: <абсолютный корень плагина из state.md>
 RUN DIR: <абсолютный путь .claude/teams/feature-<имя>>
 NAME: <имя участника>
+LANG: <ru|en из Language: state.md>
 ```
+
+`LANG:` — язык того, что участник пишет для человека (DECISIONS.md, LEGACY_REPORT.md). Метки протокола
+от него не зависят.
 
 Роль без строки `PLUGIN:` корень не ищет, а спрашивает тебя. Вызов везде один:
 `Agent(subagent_type="supertick:<роль>", name="<имя>", prompt=<промпт>)` (в сборках, где инструмент
@@ -540,6 +545,7 @@ NAME: <имя участника>
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: unified-reviewer
+LANG: <ru|en>
 TEAM: feature-<имя>
 FEATURE: <фича одной-двумя фразами>
 DEFINITION OF DONE: <RUN DIR>/VERIFICATION_PLAN.md, раздел Definition of Done
@@ -569,6 +575,7 @@ SENSITIVE COPY: <RUN DIR>/mail/lead/<YYYYMMDDTHHMMSS>_unified-reviewer_SENSITIVE
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: coder-<N>
+LANG: <ru|en>
 TEAM: feature-<имя>
 FEATURE GOAL: <1–2 фразы>
 DEFINITION OF DONE: <RUN DIR>/VERIFICATION_PLAN.md, раздел Definition of Done
@@ -610,6 +617,7 @@ ANSWER WAIT: {plugin}/scripts/team-wait.sh <RUN DIR> <NAME> --task <id> --max 54
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: tech-lead
+LANG: <ru|en>
 TEAM: feature-<имя>
 FEATURE: <фича>
 DEFINITION OF DONE: <RUN DIR>/VERIFICATION_PLAN.md
@@ -629,6 +637,7 @@ ANSWER FILE: {plugin}/scripts/team-mail.sh <RUN DIR> <кодер> tech-lead ANSW
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: architect-<frontend|backend|systems>
+LANG: <ru|en>
 TEAM: feature-<имя>
 PERSONA: <FRONTEND | BACKEND | SYSTEMS>
 EXPERTISE: <список из шага 4 для этой персоны>
@@ -644,6 +653,7 @@ CARD: python3 {plugin}/scripts/run-state.py set <RUN DIR> <NAME> status=<running
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: codebase-researcher
+LANG: <ru|en>
 FEATURE: <описание фичи — для планирования>
 Нужно: стек, структура, затронутые слои, команды сборки и тестов, похожие фичи. Выжимка, не файлы.
 ```
@@ -654,6 +664,7 @@ FEATURE: <описание фичи — для планирования>
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: reference-researcher
+LANG: <ru|en>
 FEATURE: <описание фичи>
 PROJECT CONTEXT: <## Project Context из брифа — если есть>
 Найди канонический файл на каждый затронутый слой и верни его полное содержимое.
@@ -665,6 +676,7 @@ PROJECT CONTEXT: <## Project Context из брифа — если есть>
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: web-researcher
+LANG: <ru|en>
 Что неизвестно: <библиотека или шаблон; стек проекта>.
 Ответ в 10–20 строк: подход и почему, ключевая библиотека, 2–3 ловушки, псевдокод. WebSearch или Context7.
 ```
@@ -675,6 +687,7 @@ NAME: web-researcher
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: risk-tester-<n>
+LANG: <ru|en>
 RISK: <формулировка риска>
 SEVERITY: <CRITICAL | MAJOR>
 AFFECTED TASKS: <номера>
@@ -697,6 +710,7 @@ SANDBOX: read-only   (coder: workspace-write + явный список разр�
 PLUGIN: <abs>
 RUN DIR: <abs>
 NAME: <имя роли>
+LANG: <ru|en>
 <остальное — обычный промпт этой роли из шаблонов выше>
 ```
 

@@ -19,6 +19,7 @@
    "split":   {"coder": {"engine": "codex", "model": "gpt-5.6-sol"}, "reviewer": {"engine": "cursor"}},
    "groups":  {"coders": {...}, "reviewer": {...}, "architects": {...}, "researchers": {...}, "verifiers": {...}},
    "second_opinion": {"engine": "cursor", "model": "…"} | "off",
+   "language": "ru" | "en",   (121-604: язык ленты и отчётов, пишется в профиль)
    "activate": true}
 Группа или роль без значения (null) остаётся на родном исполнителе хоста.
 
@@ -51,6 +52,7 @@ _spec.loader.exec_module(ec)
 _spec = importlib.util.spec_from_file_location("lead_probe", SCRIPTS_DIR / "lead-probe.py")
 lp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lp)
+T = ec.T   # текст для человека на языке ec.OUTPUT_LANG (121-604)
 
 # CLI → (движок в конфиге, хост, которому он соответствует). hosts — только среды, где может жить ведущий.
 CLIS = {
@@ -163,7 +165,7 @@ def probe_cli(cli, path, timeout):
     try:
         res = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
-        return "no_answer", f"нет ответа за {timeout} с"
+        return "no_answer", T(f"нет ответа за {timeout} с", f"no answer in {timeout} s")
     except OSError as exc:
         return "error", str(exc)
     out = (res.stdout or "").strip()
@@ -173,7 +175,7 @@ def probe_cli(cli, path, timeout):
     blob = out + "\n" + err
     if LOGIN_HINT.search(blob):
         return "not_logged_in", blob.strip().splitlines()[0][:120] if blob.strip() else ""
-    return "error", (err or out or f"код {res.returncode}").splitlines()[0][:120]
+    return "error", (err or out or T(f"код {res.returncode}", f"exit code {res.returncode}")).splitlines()[0][:120]
 
 
 def discover(probe=True, probe_timeout=90, current_host=None):
@@ -216,17 +218,20 @@ def discover_text(d):
     lines = []
     for e in d["clis"]:
         if not e["installed"]:
-            lines.append(f"{e['cli']}: не установлен")
+            lines.append(f"{e['cli']}: " + T("не установлен", "not installed"))
             continue
-        label = {"responds": "отвечает", "not_logged_in": "не выполнен вход", "no_answer": "не ответил",
-                 "error": "ошибка пробы", "unchecked": "не проверен"}[e["state"]]
-        lead = {True: "может быть ведущим", None: "ведущим не проверен", False: ""}[e["lead_capable"]]
+        label = {"responds": T("отвечает", "responds"), "not_logged_in": T("не выполнен вход", "not logged in"),
+                 "no_answer": T("не ответил", "no answer"), "error": T("ошибка пробы", "probe error"),
+                 "unchecked": T("не проверен", "not checked")}[e["state"]]
+        lead = {True: T("может быть ведущим", "can lead"), None: T("ведущим не проверен", "not checked as lead"),
+                False: ""}[e["lead_capable"]]
         extra = ", ".join(x for x in (e["version"], lead, e["detail"]) if x)
-        lines.append(f"{e['cli']}: {label}" + (f" ({extra})" if extra else "") + f"; моделей {len(e['models'])}")
-    lines.append("источники: " + (", ".join(d["sources"]) or "нет"))
+        lines.append(f"{e['cli']}: {label}" + (f" ({extra})" if extra else "")
+                     + T(f"; моделей {len(e['models'])}", f"; models {len(e['models'])}"))
+    lines.append(T("источники: ", "sources: ") + (", ".join(d["sources"]) or T("нет", "none")))
     for p in d.get("lead_probes") or []:
-        lines.append(f"проба ведущего {p['host']}" + (f" / {p['model']}" if p["model"] else "")
-                     + f" (профиль {p['profile']}): {p['result']} {p['date']}")
+        lines.append(T("проба ведущего ", "lead probe ") + p["host"] + (f" / {p['model']}" if p["model"] else "")
+                     + T(f" (профиль {p['profile']}): ", f" (profile {p['profile']}): ") + f"{p['result']} {p['date']}")
     return "\n".join(lines)
 
 
@@ -253,19 +258,19 @@ def probe_for(cfg, host, model):
 def probe_mark(cfg, host, model):
     """Пометка ведущего для диалога (п. 4.4, вопрос 1)."""
     if host == "claude-code":
-        return "свой протокол 1.1.x"
+        return T("свой протокол 1.1.x", "own 1.1.x protocol")
     p = probe_for(cfg, host, model)
     if not p:
-        return "не проверена как ведущий"
+        return T("не проверена как ведущий", "not checked as lead")
     if p["result"] == "passed":
-        return f"проверена как ведущий {p['date']}"
-    return f"проба ведущего {p['date']}: {p['result']}"
+        return T(f"проверена как ведущий {p['date']}", f"checked as lead {p['date']}")
+    return T(f"проба ведущего {p['date']}: {p['result']}", f"lead probe {p['date']}: {p['result']}")
 
 
 def run_lead_probe(cfg, name, timeout=1800, root=None, keep=None):
     prof = (cfg.get("profiles") or {}).get(name)
     if not isinstance(prof, dict) or not isinstance(prof.get("lead"), dict):
-        raise SetupError(f"профиль {name} не найден или без ведущего")
+        raise SetupError(T(f"профиль {name} не найден или без ведущего", f"profile {name} not found or has no lead"))
     lead = prof["lead"]
     try:
         r = lp.probe(lead.get("host", ""), lead.get("model"), root=root, timeout=timeout, keep=keep, base_profile=prof)
@@ -303,7 +308,7 @@ def role_assignment(value, d, where):
     if isinstance(value, str):
         value = {"engine": value}
     if not isinstance(value, dict) or not value.get("engine"):
-        raise SetupError(f"{where}: нужен объект с engine или null")
+        raise SetupError(T(f"{where}: нужен объект с engine или null", f"{where}: expected an object with engine, or null"))
     spec = {"engine": value["engine"], "model": value.get("model") or default_model(value["engine"], d)}
     for key in ("effort", "access"):
         if value.get(key):
@@ -314,7 +319,10 @@ def role_assignment(value, d, where):
 def build_profile(answers, d):
     lead = answers.get("lead")
     if not isinstance(lead, dict) or lead.get("host") not in ec.HOSTS:
-        raise SetupError(f"lead: нужен объект с host из {sorted(ec.HOSTS)}")
+        raise SetupError(T(f"lead: нужен объект с host из {sorted(ec.HOSTS)}", f"lead: expected an object with host from {sorted(ec.HOSTS)}"))
+    language = answers.get("language")
+    if language is not None and ec.norm_language(language) is None:
+        raise SetupError(T(f"language: ru или en, получено {language!r}", f"language: ru or en, got {language!r}"))
     lead_spec = {"host": lead["host"]}
     if lead.get("model"):
         lead_spec["model"] = lead["model"]
@@ -324,7 +332,7 @@ def build_profile(answers, d):
         pass
     elif layout == "split":
         if len(usable_engines(d)) < 2:
-            raise SetupError("раскладка split доступна при двух и более источниках")
+            raise SetupError(T("раскладка split доступна при двух и более источниках", "layout split needs two or more sources"))
         split = answers.get("split") or {}
         for key, group in (("coder", "coders"), ("reviewer", "reviewer")):
             spec = role_assignment(split.get(key), d, f"split.{key}")
@@ -335,18 +343,19 @@ def build_profile(answers, d):
         groups = answers.get("groups") or {}
         for name in groups:
             if name not in GROUPS:
-                raise SetupError(f"groups.{name}: неизвестная группа, есть {sorted(GROUPS)}")
+                raise SetupError(T(f"groups.{name}: неизвестная группа, есть {sorted(GROUPS)}", f"groups.{name}: unknown group, known {sorted(GROUPS)}"))
         for name, members in GROUPS.items():
             spec = role_assignment(groups.get(name), d, f"groups.{name}")
             if spec:
                 for role in members:
                     roles[role] = dict(spec)
     else:
-        raise SetupError(f"layout: all-on-lead, split или groups, получено {layout!r}")
+        raise SetupError(T(f"layout: all-on-lead, split или groups, получено {layout!r}", f"layout: all-on-lead, split or groups, got {layout!r}"))
     second = answers.get("second_opinion", "off")
     if second not in ("off", None):
         if len(usable_engines(d)) < 2:
-            raise SetupError("второе мнение нужно при двух и более источниках: при одном вопрос не задаётся")
+            raise SetupError(T("второе мнение нужно при двух и более источниках: при одном вопрос не задаётся",
+                               "a second opinion needs two or more sources: with one the question is not asked"))
         spec = role_assignment(second, d, "second_opinion")
         if spec:
             roles["second-reviewer"] = spec
@@ -362,6 +371,8 @@ def build_profile(answers, d):
     profile = {"lead": lead_spec, "roles": roles, "confirmed_at": date.today().isoformat(),
                "fingerprint": d["fingerprint"],
                "sources": d["sources"], "installed": sorted(e["cli"] for e in d["clis"] if e["installed"])}
+    if language is not None:
+        profile["language"] = ec.norm_language(language)   # язык ленты и отчётов (121-604)
     return answers.get("profile") or "default", profile
 
 
@@ -378,9 +389,10 @@ def read_target(path):
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError) as exc:
-        raise SetupError(f"{path} не читается ({exc}): исправьте или удалите файл, затем повторите")
+        raise SetupError(T(f"{path} не читается ({exc}): исправьте или удалите файл, затем повторите",
+                             f"{path} is unreadable ({exc}): fix or remove the file, then retry"))
     if not isinstance(data, dict):
-        raise SetupError(f"{path}: корень не объект")
+        raise SetupError(T(f"{path}: корень не объект", f"{path}: root is not an object"))
     return data
 
 
@@ -410,7 +422,7 @@ def plan_rows(cfg, name, host, res):
             continue
         access, _ = ec.role_access(role, roles.get(role) or {})
         rows.append({"role": role, "engine": detail["engine"], "model": detail.get("model", ""),
-                     "access": "запись" if access == "write" else "чтение", "native": detail["engine"] == native})
+                     "access": T("запись", "write") if access == "write" else T("чтение", "read"), "native": detail["engine"] == native})
     return rows
 
 
@@ -430,7 +442,8 @@ def build_plan(answers, d, existing):
     ready = usable_engines(d)
     for role, spec in profile["roles"].items():
         if spec and spec["engine"] not in ready:
-            problems.append(f"роль {role}: движок {spec['engine']} не подключён (нет CLI, входа или пресета)")
+            problems.append(T(f"роль {role}: движок {spec['engine']} не подключён (нет CLI, входа или пресета)",
+                              f"role {role}: engine {spec['engine']} is not connected (no CLI, login or preset)"))
     host = profile["lead"]["host"]
     avail = {e["cli"] for e in d["clis"] if e["installed"]}
     avail |= {ec.PRESETS[e["engine"]]["binary"] for e in d["clis"] if e["installed"] and e["engine_preset"]}
@@ -438,33 +451,40 @@ def build_plan(answers, d, existing):
     notes = list(res["feed"])
     entry = next((e for e in d["clis"] if e["host"] == host), None)
     if entry is None or not entry["installed"]:
-        problems.append(f"ведущий: среда {host} не установлена")
+        problems.append(T(f"ведущий: среда {host} не установлена", f"lead: host {host} is not installed"))
     elif entry["state"] not in ("responds", "unchecked"):
-        problems.append(f"ведущий: {entry['cli']} не готов ({entry['state']})")
+        problems.append(T(f"ведущий: {entry['cli']} не готов ({entry['state']})", f"lead: {entry['cli']} is not ready ({entry['state']})"))
     if entry and entry["lead_capable"] is None:
-        notes.append(f"⚙️ ведущий {host} не проверен как ведущий (спайк S0 не проведён)")
+        notes.append(T(f"⚙️ ведущий {host} не проверен как ведущий (спайк S0 не проведён)",
+                       f"⚙️ lead {host} is not checked as lead (spike S0 not done)"))
     elif not LEAD_CAPABLE.get(host):
-        problems.append(f"ведущий: {host} не годится в ведущие")
+        problems.append(T(f"ведущий: {host} не годится в ведущие", f"lead: {host} cannot lead"))
     if entry and entry["models"] and profile["lead"].get("model") and profile["lead"]["model"] not in entry["models"]:
-        notes.append(f"⚙️ модель ведущего {profile['lead']['model']} не из списка {entry['cli']} (проверьте имя)")
+        notes.append(T(f"⚙️ модель ведущего {profile['lead']['model']} не из списка {entry['cli']} (проверьте имя)",
+                       f"⚙️ lead model {profile['lead']['model']} is not in the {entry['cli']} list (check the name)"))
     if host != "claude-code" and LEAD_CAPABLE.get(host):
         p = probe_for(cfg, host, profile["lead"].get("model"))
         if not p:
-            notes.append(f"⚙️ ведущий не проверен пробой: supertick-setup.py lead-probe {name} (несколько минут вызовов модели)")
+            notes.append(T(f"⚙️ ведущий не проверен пробой: supertick-setup.py lead-probe {name} (несколько минут вызовов модели)",
+                           f"⚙️ lead not probed: supertick-setup.py lead-probe {name} (a few minutes of model calls)"))
         elif p["result"] != "passed":
-            notes.append(f"⚙️ проба ведущего {p['date']}: {p['result']} — модель может не удержать протокол "
-                         "(проба ничего не запрещает)")
+            notes.append(T(f"⚙️ проба ведущего {p['date']}: {p['result']} — модель может не удержать протокол "
+                           "(проба ничего не запрещает)",
+                           f"⚙️ lead probe {p['date']}: {p['result']} — the model may not hold the protocol "
+                           "(the probe forbids nothing)"))
     return {"profile": name, "activate": activate, "lead": profile["lead"], "rows": plan_rows(runtime_config(cfg), name, host, res),
             "problems": problems, "notes": notes, "warnings": [w["message"] + f" [{w['path']}]" for w in warnings],
             "launch": launch_command(profile["lead"]), "config": cfg, "profile_body": profile}
 
 
 def plan_text(plan):
-    lines = [f"Профиль {plan['profile']}: ведущий {plan['lead']['host']}"
+    lines = [T(f"Профиль {plan['profile']}: ведущий ", f"Profile {plan['profile']}: lead ") + plan["lead"]["host"]
              + (f" / {plan['lead']['model']}" if plan["lead"].get("model") else "")]
+    if plan["profile_body"].get("language"):
+        lines.append(T("  язык ленты и отчётов: ", "  feed and report language: ") + plan["profile_body"]["language"])
     lines += [f"  {r['role']:<22} {r['engine']:<10} {r['model'] or '—':<28} {r['access']}" for r in plan["rows"]]
-    lines += plan["notes"] + [f"предупреждение: {w}" for w in plan["warnings"]]
-    lines += [f"ОШИБКА: {p}" for p in plan["problems"]]
+    lines += plan["notes"] + [T("предупреждение: ", "warning: ") + w for w in plan["warnings"]]
+    lines += [T("ОШИБКА: ", "ERROR: ") + p for p in plan["problems"]]
     return "\n".join(lines)
 
 
@@ -496,54 +516,69 @@ def choose(ask, question, options, other=True):
     options = options[:4]
     lines = [question] + [f"  {i}. {label}" for i, (label, _) in enumerate(options, 1)]
     if other:
-        lines.append("  0. Другое")
+        lines.append(T("  0. Другое", "  0. Other"))
     answer = ask("\n".join(lines) + "\n> ").strip()
     if answer.isdigit() and 1 <= int(answer) <= len(options):
         return options[int(answer) - 1][1]
     if other and answer == "0":
-        return ("other", ask("Введите значение: ").strip())
-    raise SetupError(f"нужен номер от {0 if other else 1} до {len(options)}")
+        return ("other", ask(T("Введите значение: ", "Enter a value: ")).strip())
+    raise SetupError(T(f"нужен номер от {0 if other else 1} до {len(options)}", f"expected a number from {0 if other else 1} to {len(options)}"))
 
 
 def pick_engine(ask, d, question):
     ready = usable_engines(d)
     opts = [(f"{n}: {default_model(n, d)}", {"engine": n, "model": default_model(n, d)}) for n in ready]
-    opts.append(("родной исполнитель среды", None))
+    opts.append((T("родной исполнитель среды", "the host's native executor"), None))
     got = choose(ask, question, opts, other=False)
     return got
 
 
+def ask_language(ask):
+    """Первый вопрос диалога (121-604), задаётся на двух языках; ответ сразу переключает язык диалога."""
+    suggested = ec.OUTPUT_LANG
+    opts = [("русский", "ru"), ("English", "en")]
+    opts.sort(key=lambda o: o[1] != suggested)   # предложенный по локали и конфигу — первым
+    lang = choose(ask, "Язык ленты и отчётов / Feed and report language:", opts, other=False)
+    ec.OUTPUT_LANG = lang
+    return lang
+
+
 def dialog(d, ask, say, current_host=None, cfg=None):
+    language = ask_language(ask)
     leads = [e for e in d["clis"] if e["host"] and e["lead_capable"] is not False and e["state"] in ("responds", "unchecked")]
     if not leads:
-        raise SetupError("нет ни одного CLI, который может быть ведущим: установите и войдите хотя бы в один")
+        raise SetupError(T("нет ни одного CLI, который может быть ведущим: установите и войдите хотя бы в один",
+                             "no CLI can lead: install and log in to at least one"))
     opts = []
     for e in leads:
         model = e["models"][0] if e["models"] else ""
-        mark = probe_mark(cfg, e["host"], model) if e["lead_capable"] else "среда не проверена спайком"
-        here = ", текущий сеанс" if e["host"] == current_host else ", нужен перезапуск"
-        opts.append((f"{e['host']} / {model or 'по умолчанию'} ({mark}{here})", {"host": e["host"], "model": model}))
-    lead = choose(ask, "Кто ведущий?", opts)
+        mark = probe_mark(cfg, e["host"], model) if e["lead_capable"] else T("среда не проверена спайком", "host not checked by a spike")
+        here = T(", текущий сеанс", ", current session") if e["host"] == current_host else T(", нужен перезапуск", ", restart needed")
+        opts.append((f"{e['host']} / {model or T('по умолчанию', 'default')} ({mark}{here})", {"host": e["host"], "model": model}))
+    lead = choose(ask, T("Кто ведущий?", "Who leads?"), opts)
     if isinstance(lead, tuple):
         host, _, model = lead[1].partition("/")
         lead = {"host": host.strip(), "model": model.strip()}
-    answers = {"lead": lead, "profile": ask("Имя профиля [default]: ").strip() or "default", "activate": True}
+    answers = {"language": language, "lead": lead,
+               "profile": ask(T("Имя профиля [default]: ", "Profile name [default]: ")).strip() or "default", "activate": True}
     sources = usable_engines(d)
-    layouts = [("всё на модели ведущего", "all-on-lead")]
+    layouts = [(T("всё на модели ведущего", "everything on the lead's model"), "all-on-lead")]
     if len(sources) >= 2:
-        layouts.append(("код и ревью на разных моделях", "split"))
-    layouts.append(("по группам ролей", "groups"))
-    layout = choose(ask, "Состав команды?", layouts, other=False)
+        layouts.append((T("код и ревью на разных моделях", "code and review on different models"), "split"))
+    layouts.append((T("по группам ролей", "by role groups"), "groups"))
+    layout = choose(ask, T("Состав команды?", "Team layout?"), layouts, other=False)
     answers["layout"] = layout
     if layout == "split":
-        answers["split"] = {"coder": pick_engine(ask, d, "Кто пишет код?"),
-                            "reviewer": pick_engine(ask, d, "Кто рецензирует?")}
+        answers["split"] = {"coder": pick_engine(ask, d, T("Кто пишет код?", "Who writes code?")),
+                            "reviewer": pick_engine(ask, d, T("Кто рецензирует?", "Who reviews?"))}
     elif layout == "groups":
-        titles = {"coders": "кодеры", "reviewer": "рецензент", "architects": "архитекторы и техлид",
-                  "researchers": "исследователи", "verifiers": "проверяющие"}
-        answers["groups"] = {g: pick_engine(ask, d, f"Кто исполняет группу «{titles[g]}»?") for g in GROUPS}
+        titles = {"coders": T("кодеры", "coders"), "reviewer": T("рецензент", "reviewer"),
+                  "architects": T("архитекторы и техлид", "architects and tech lead"),
+                  "researchers": T("исследователи", "researchers"), "verifiers": T("проверяющие", "verifiers")}
+        answers["groups"] = {g: pick_engine(ask, d, T(f"Кто исполняет группу «{titles[g]}»?", f"Who runs the group “{titles[g]}”?"))
+                             for g in GROUPS}
     if len(sources) >= 2:
-        second = pick_engine(ask, d, "Второе мнение (другая модель)?")
+        second = pick_engine(ask, d, T("Второе мнение (другая модель)?", "Second opinion (another model)?"))
         answers["second_opinion"] = second or "off"
     return answers
 
@@ -553,9 +588,9 @@ def load_answers(path):
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise SetupError(f"ответы не читаются: {exc}")
+        raise SetupError(T(f"ответы не читаются: {exc}", f"answers are unreadable: {exc}"))
     if not isinstance(data, dict):
-        raise SetupError("ответы: корень не объект")
+        raise SetupError(T("ответы: корень не объект", "answers: root is not an object"))
     return data
 
 
@@ -590,16 +625,22 @@ def main(argv):
             p.add_argument("--force", action="store_true", help="записать профиль, даже если есть ошибки проверки")
         if name == "launch":
             p.add_argument("profile")
+        p.add_argument("--lang", help="язык вывода: ru | en (по умолчанию SUPERTICK_LANG, профиль, конфиг, локаль, en)")
     args = top.parse_args(argv)
     try:
+        try:
+            lang_cfg, _, _ = ec.load_config(ec.config_paths())
+        except Exception:
+            lang_cfg = {}
+        ec.OUTPUT_LANG = ec.resolve_language(lang_cfg, flag=getattr(args, "lang", None))["lang"]
         if args.cmd == "launch":
             cfg, _, _ = ec.load_config(ec.config_paths())
             prof = (cfg.get("profiles") or {}).get(args.profile)
             if not isinstance(prof, dict) or not prof.get("lead"):
-                raise SetupError(f"профиль {args.profile} не найден или без ведущего")
+                raise SetupError(T(f"профиль {args.profile} не найден или без ведущего", f"profile {args.profile} not found or has no lead"))
             cmd = launch_command(prof["lead"])
             emit({"profile": args.profile, "lead": prof["lead"], "command": cmd}, args.json, cmd or
-                 f"для хоста {prof['lead']['host']} команда запуска не известна")
+                 T(f"для хоста {prof['lead']['host']} команда запуска не известна", f"no launch command known for host {prof['lead']['host']}"))
             return 0
         if args.cmd == "lead-probe":
             path = target_path()
@@ -609,13 +650,14 @@ def main(argv):
             written = ""
             if not args.no_write:
                 if args.profile not in (existing.get("profiles") or {}):
-                    raise SetupError(f"профиль {args.profile} не в {path}: итог не записан (--no-write, чтобы только посмотреть)")
+                    raise SetupError(T(f"профиль {args.profile} не в {path}: итог не записан (--no-write, чтобы только посмотреть)",
+                                      f"profile {args.profile} is not in {path}: result not written (--no-write to just look)"))
                 new = json.loads(json.dumps(existing))
                 new["profiles"][args.profile]["lead_probe"] = stored
                 write_atomic(path, new)
                 written = str(path)
             emit(dict(r, profile=args.profile, written=written), args.json,
-                 lp.text(r) + (f"\nзаписано в профиль {args.profile}: {path}" if written else ""))
+                 lp.text(r) + (T(f"\nзаписано в профиль {args.profile}: {path}", f"\nwritten to profile {args.profile}: {path}") if written else ""))
             return 0 if r["result"] == "passed" else 1
         current = None
         try:
@@ -635,7 +677,7 @@ def main(argv):
         existing = read_target(path)
         if args.cmd == "setup":
             if not sys.stdin.isatty():
-                raise SetupError("диалогу нужен терминал; без него — `apply --answers ФАЙЛ`")
+                raise SetupError(T("диалогу нужен терминал; без него — `apply --answers ФАЙЛ`", "the dialog needs a terminal; without one use `apply --answers FILE`"))
             print(discover_text(d))
             answers = dialog(d, input, print, current, existing)
         else:
@@ -646,19 +688,21 @@ def main(argv):
             return 1 if plan["problems"] else 0
         if args.cmd == "setup":
             print(plan_text(plan))
-            if input("Записать профиль? [y/N] ").strip().lower() not in ("y", "д", "yes", "да"):
-                print("отменено")
+            if input(T("Записать профиль? [y/N] ", "Write the profile? [y/N] ")).strip().lower() not in ("y", "д", "yes", "да"):
+                print(T("отменено", "cancelled"))
                 return 0
         if plan["problems"] and not getattr(args, "force", False):
             emit(public(plan), args.json, plan_text(plan))
             return 1
         backup = write_atomic(path, plan["config"])
         result = dict(public(plan), written=str(path), backup=backup)
-        emit(result, args.json, plan_text(plan) + f"\nзаписано: {path}" + (f" (копия {backup})" if backup else "")
-             + (f"\nзапуск: {plan['launch']}" if plan["launch"] else ""))
+        emit(result, args.json, plan_text(plan) + T("\nзаписано: ", "\nwritten: ") + str(path)
+             + (T(f" (копия {backup})", f" (backup {backup})") if backup else "")
+             + (T("\nзапуск: ", "\nlaunch: ") + plan["launch"] if plan["launch"] else ""))
         host = plan["lead"]["host"]
         if args.cmd == "setup" and host in lp.HOST_ARGV and not probe_for(plan["config"], host, plan["lead"].get("model")):
-            if input("Проверить ведущего пробой (несколько минут вызовов модели)? [y/N] ").strip().lower() in ("y", "д", "yes", "да"):
+            if input(T("Проверить ведущего пробой (несколько минут вызовов модели)? [y/N] ",
+                       "Probe the lead (a few minutes of model calls)? [y/N] ")).strip().lower() in ("y", "д", "yes", "да"):
                 r, stored = run_lead_probe(plan["config"], plan["profile"])
                 cfg = read_target(path)
                 cfg["profiles"][plan["profile"]]["lead_probe"] = stored

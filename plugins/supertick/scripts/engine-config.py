@@ -8,6 +8,7 @@
   engine-config.py argv     <роль> --run-dir D --prompt F [--name N] [--task T] [--report R]
                             [--timeout S] [--resume [ID]] [--json]
   engine-config.py validate [--json]
+  engine-config.py lang     [--lang ru|en] [--profile P] [--request-lang ru|en] [--json]   (121-604)
   (у всех: --config ФАЙЛ, повторяемый, вместо поиска по умолчанию)
 
 Конфиг ищется так: $SUPERTICK_CONFIG, затем ~/.config/supertick/config.json, затем прежний
@@ -161,8 +162,8 @@ RETIRED = {"security-reviewer", "logic-reviewer", "quality-reviewer"}     # сн
 FALLBACKS = {"host", "fail", "claude"}
 ROLE_KEYS = {"engine", "model", "effort", "sandbox", "access"}
 ENGINE_KEYS = {"model", "effort", "cmd", "resume", "mode_flags", "session", "result", "git_flags"}
-TOP_KEYS = {"enabled", "fallback", "active_profile", "profiles", "roles", "engines"}
-PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe", "sources", "installed"}
+TOP_KEYS = {"enabled", "fallback", "active_profile", "profiles", "roles", "engines", "language"}
+PROFILE_KEYS = {"lead", "roles", "confirmed_at", "fingerprint", "lead_probe", "sources", "installed", "language"}
 CLI_BINARIES = ("claude", "kimi", "opencode", "codex", "cursor-agent", "grok")   # CLI, которые учитывает setup (F5)
 LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "codex": "codex -m {model} --sandbox danger-full-access",
           "opencode": "opencode -m {model}"}   # команда запуска ведущего: профиль → среда с нужной моделью
@@ -170,6 +171,13 @@ LAUNCH = {"claude-code": "claude --model {model}", "kimi": "kimi -m {model}", "c
 # (Read-only file system в ~/.codex), а с сетью и ~/.codex не может собрать свою песочницу внутри чужой (bubblewrap).
 # Ограничения ролей держат песочницы самих исполнителей — `codex exec --sandbox read-only|workspace-write`.
 SETUP_COMMAND = "python3 {scripts}/supertick-setup.py setup"
+
+# Язык того, что видит человек (121-604): лента, сводки, вопросы, PLAN.md/DECISIONS.md, отчёт, doctor/setup.
+# Промпты ролей и метки протокола (DONE:, VERDICT: …) от языка не зависят.
+LANGUAGES = ("ru", "en")
+DEFAULT_LANGUAGE = "en"
+LANG_ENV = "SUPERTICK_LANG"                       # для скриптов и тестов — как флаг --lang
+LOCALE_ENVS = ("LC_ALL", "LC_MESSAGES", "LANG")   # порядок POSIX: первый непустой решает
 
 
 # ------------------------------------------------------------------ конфиг
@@ -240,6 +248,57 @@ def effective_roles(cfg, profile):
     for r, s in ((profile or {}).get("roles") or {}).items():
         roles[r] = role_spec(s)   # профиль накладывается поверх: роль заменяется целиком
     return roles
+
+
+def norm_language(value):
+    """'ru' | 'en' | None; регистр и пробелы по краям не важны."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value if value in LANGUAGES else None
+
+
+def locale_language(env):
+    """Язык из локали: ru_RU.UTF-8 → ru, en_US → en; C, POSIX, C.UTF-8 и прочее — None (сведений нет)."""
+    for key in LOCALE_ENVS:
+        value = (env.get(key) or "").strip()
+        if value:
+            return norm_language(value.split(".")[0].split("@")[0].split("_")[0])
+    return None
+
+
+def resolve_language(cfg, profile=None, flag=None, request=None, env=None):
+    """Язык вывода и откуда он взят: флаг → SUPERTICK_LANG → профиль → конфиг → язык запроса → локаль → en.
+
+    flag и request — то, что передал ведущий (`--lang`, `--request-lang`); неверный flag — ValueError.
+    Неверное значение в конфиге не роняет прогон: пропускается с предупреждением."""
+    env = os.environ if env is None else env
+    warnings = []
+    if flag is not None:
+        lang = norm_language(flag)
+        if lang is None:
+            raise ValueError(f"--lang: одно из {list(LANGUAGES)}, получено {flag!r}")
+        return {"lang": lang, "source": "flag", "warnings": warnings}
+    if env.get(LANG_ENV):
+        lang = norm_language(env[LANG_ENV])
+        if lang:
+            return {"lang": lang, "source": "env:" + LANG_ENV, "warnings": warnings}
+        warnings.append(f"{LANG_ENV}={env[LANG_ENV]!r}: не ru и не en, пропущено")
+    name, prof = active_profile(cfg, profile)
+    for source, value in ((f"profile:{name}", (prof or {}).get("language")), ("config", cfg.get("language"))):
+        if value is None:
+            continue
+        lang = norm_language(value)
+        if lang:
+            return {"lang": lang, "source": source, "warnings": warnings}
+        warnings.append(f"{source}: language={value!r} не ru и не en, пропущено")
+    lang = norm_language(request)
+    if lang:
+        return {"lang": lang, "source": "request", "warnings": warnings}
+    lang = locale_language(env)
+    if lang:
+        return {"lang": lang, "source": "locale", "warnings": warnings}
+    return {"lang": DEFAULT_LANGUAGE, "source": "default", "warnings": warnings}
 
 
 def launch_command(lead):
@@ -440,6 +499,23 @@ FEED = {
     "web_search_required": "роль {role}: движок {engine} без живого поиска, роль выключена",
 }
 NATIVE_NAME = {"claude": "Claude", "native": "родном исполнителе"}
+FEED_EN = {
+    "broken_json": "config {detail} is unreadable (broken JSON): skipped",
+    "engine_missing": "role {role}: engine {engine} not found, role runs on {native}",
+    "assignment_ignored": "role {role} always runs on the native executor: assignment {engine} ignored",
+    "retired_role": "id {role} is retired: assignment ignored",
+    "second_reviewer_same_engine": "second-reviewer matches unified-reviewer ({detail}): second opinion off",
+    "profile_missing": "profile {role} not found: roles taken from roles",
+    "role_disabled_on_host": "role {role} exists only in Claude Code: disabled on host {detail}",
+    "web_search_required": "role {role}: engine {engine} has no live search, role disabled",
+}
+NATIVE_NAME_EN = {"claude": "Claude", "native": "the native executor"}
+OUTPUT_LANG = "ru"   # язык текстов скриптов; main() каждого скрипта ставит его по resolve_language (121-604)
+
+
+def T(ru, en):
+    """Текст для человека на языке OUTPUT_LANG. Коды, ключи JSON и метки протокола не переводятся."""
+    return en if OUTPUT_LANG == "en" else ru
 
 
 def code_of(w):
@@ -447,8 +523,9 @@ def code_of(w):
 
 
 def feed_line(w, native):
-    return "⚙️ " + FEED.get(w["code"], w["code"]).format(
-        native=NATIVE_NAME.get(native, native), detail=w.get("detail", ""), role=w.get("role", ""), engine=w.get("engine", ""))
+    feed, names = (FEED_EN, NATIVE_NAME_EN) if OUTPUT_LANG == "en" else (FEED, NATIVE_NAME)
+    return "⚙️ " + feed.get(w["code"], w["code"]).format(
+        native=names.get(native, native), detail=w.get("detail", ""), role=w.get("role", ""), engine=w.get("engine", ""))
 
 
 def discover_available(cfg):
@@ -652,6 +729,8 @@ def validate(cfg):
         err("enabled", "type", "нужно true или false")
     if "fallback" in cfg and cfg["fallback"] not in FALLBACKS:
         err("fallback", "value", f"одно из {sorted(FALLBACKS)}")
+    if "language" in cfg and norm_language(cfg["language"]) is None:
+        err("language", "value", f"одно из {list(LANGUAGES)}")
     for key in cfg:
         if key not in TOP_KEYS:
             warn(key, "unknown_key", "неизвестный ключ верхнего уровня: игнорируется")
@@ -725,6 +804,8 @@ def validate(cfg):
         lead = prof.get("lead")
         if lead is not None and not (isinstance(lead, dict) and lead.get("host") in HOSTS):
             err(f"profiles.{pname}.lead", "value", f"нужен объект с host из {sorted(HOSTS)}")
+        if "language" in prof and norm_language(prof["language"]) is None:
+            err(f"profiles.{pname}.language", "value", f"одно из {list(LANGUAGES)}")
         if "fingerprint" in prof and not str(prof["fingerprint"]).startswith("sha256:"):
             err(f"profiles.{pname}.fingerprint", "value", "ожидается sha256:…")
         check_roles(f"profiles.{pname}.roles", prof.get("roles") or {})
@@ -754,6 +835,7 @@ def main(argv):
     p.add_argument("--available", help="бинари через запятую вместо поиска в системе"); common(p)
     p = sub.add_parser("resolve")
     p.add_argument("--host"); p.add_argument("--profile"); p.add_argument("--engines")
+    p.add_argument("--lang", help="язык строк ⚙️ (ru | en), по умолчанию — как у команды lang")
     p.add_argument("--available", help="бинари через запятую вместо поиска в системе"); common(p)
     p = sub.add_parser("argv")
     p.add_argument("role"); p.add_argument("--host"); p.add_argument("--profile"); p.add_argument("--name")
@@ -762,18 +844,31 @@ def main(argv):
     p.add_argument("--resume", nargs="?", const="auto"); p.add_argument("--available")
     p.add_argument("--cwd", help="корень проекта (по умолчанию текущий каталог): откуда брать каталоги git для ролей с коммитом"); common(p)
     p = sub.add_parser("validate"); common(p)
+    p = sub.add_parser("lang", help="язык вывода для человека (121-604)")
+    p.add_argument("--lang", help="ru | en — явный выбор, главнее всего")
+    p.add_argument("--profile")
+    p.add_argument("--request-lang", help="язык запроса пользователя, как его понял ведущий (ru | en)"); common(p)
     args = top.parse_args(argv)
 
     cfg, load_warn, used = load_config(config_paths(args.config))
+    global OUTPUT_LANG
     try:
+        OUTPUT_LANG = resolve_language(cfg, profile=getattr(args, "profile", None), flag=getattr(args, "lang", None),
+                                       request=getattr(args, "request_lang", None))["lang"]
         if args.cmd == "validate":
             errors, warnings = validate(cfg)
             data = {"ok": not errors, "errors": errors, "warnings": warnings, "files": used,
                     "broken": [w["detail"] for w in load_warn]}
             lines = [f"{e['path']}: {e['message']} [{e['code']}]" for e in errors] + \
-                    [f"предупреждение {w['path']}: {w['message']} [{w['code']}]" for w in warnings]
-            emit(data, args.json, "\n".join(lines) if lines else f"конфиг в порядке ({len(used)} файл.)")
+                    [T("предупреждение ", "warning ") + f"{w['path']}: {w['message']} [{w['code']}]" for w in warnings]
+            emit(data, args.json, "\n".join(lines) if lines else T(f"конфиг в порядке ({len(used)} файл.)",
+                                                                   f"config OK ({len(used)} file(s))"))
             return 0 if not errors else 1
+        if args.cmd == "lang":
+            res = resolve_language(cfg, profile=args.profile, flag=args.lang, request=args.request_lang)
+            emit(res, args.json, f"LANG: {res['lang']} ({res['source']})"
+                 + "".join(T("\nпредупреждение: ", "\nwarning: ") + w for w in res["warnings"]))
+            return 0
         host, source = detect_host(args.host)
         if args.cmd == "host":
             name, prof = active_profile(cfg, args.profile)
