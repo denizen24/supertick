@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.1 — 2026-11-18
+
+- Engine deadlines come from executor cards. Failed calls retain their artifacts and cause; a live deadline cannot be silently changed.
+- Verification checkpoints record tested source files, command results, queue wait, and environment failures. Resume reuses compatible passes and can bind the verified snapshot to a commit.
+- Added a disposable worktree access probe, an explicit native fallback for linked Codex worktrees, and quota-aware retries.
+- Manual acceptance is recorded separately from historical failures. Docs-only acceptance uses its own tooling.
+- Supervisor reports checks waiting for a resource and counts actual invocations separately from participant budget.
+
+See [the recovery guide](docs/run-recovery.md) for examples.
+
 ## 2.0.0 — 2026-11-15
 
 First stable 2.0: the four-host team plugin from the `universal` branch (121-567) plus the language setting

@@ -87,6 +87,8 @@ def collect(root, manifest):
         src_rel = inside(root, entry.get("from", ""), "from")
         dst_rel = inside(root, entry.get("to", ""), "to")
         src = root / src_rel
+        if src.resolve() != src:
+            raise BuildError(f"символьная ссылка в источнике: {src_rel}")
         if not src.exists():
             raise BuildError(f"нет источника `{src_rel}`")
         head = b""
@@ -95,10 +97,14 @@ def collect(root, manifest):
                 raise BuildError(f"frontmatter только у файла, а `{src_rel}` — каталог")
             head = frontmatter(entry["frontmatter"], f"`{src_rel}`")
         exclude = set(entry.get("exclude") or [])
-        files = [src] if src.is_file() else sorted(p for p in src.rglob("*") if p.is_file())
+        files = [src] if src.is_file() else sorted(src.rglob("*"))
         for f in files:
             rel_in_src = f.relative_to(src) if src.is_dir() else Path()
             if skipped(rel_in_src) or skipped(Path(f.name)) or exclude & set(rel_in_src.parts):
+                continue
+            if f.is_symlink():
+                raise BuildError(f"символьная ссылка в источнике: {f.relative_to(root)}")
+            if not f.is_file():
                 continue
             dest = dst_rel / rel_in_src if src.is_dir() else dst_rel
             key = dest.as_posix()
@@ -162,8 +168,13 @@ def main(argv):
     try:
         manifest = load_manifest(root, args.host)
         plan = collect(root, manifest)
-        declared = (root / inside(root, manifest["output"], "output")).resolve()
-        out = Path(args.out).resolve() if args.out else declared
+        target = root / inside(root, manifest["output"], "output")
+        requested = Path(os.path.abspath(args.out)) if args.out else target
+        if target.resolve() != target or requested.is_symlink():
+            raise BuildError("выходной каталог не должен проходить через символьную ссылку")
+        declared, out = target, requested.resolve()
+        if out.is_dir() and any(p.is_symlink() for p in out.rglob("*")):
+            raise BuildError("в выходном каталоге есть символьная ссылка")
         if out == root or root in out.parents and out.relative_to(root).parts[0] in ("core", "hosts", "tools", ".git"):
             raise BuildError(f"выходной каталог {out} совпадает с исходниками")
         if not args.check and out != declared and out.exists() and any(out.iterdir()):

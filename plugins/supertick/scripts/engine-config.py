@@ -37,6 +37,10 @@ import uuid
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
+# Also used when launched with Python isolated mode.
+sys.path.insert(0, str(SCRIPTS_DIR))
+from run_support import component, done_data, engine_timeout, latest_call
+
 LAUNCHER = SCRIPTS_DIR / "run-engine.sh"
 ENGINES_DIR = SCRIPTS_DIR.parent / "engines"      # профили движков, которые лежат в наборе плагина
 LEGACY_CONFIG = "~/.claude/agent-teams.json"      # D18: путь 1.1.x читается как раньше
@@ -366,8 +370,11 @@ def role_access(role, spec):
     """(доступ роли, ошибка). Реестр + явные `sandbox` (ключ 1.1.x) и `access` (только сужает)."""
     reg = ROLES.get(role, {}).get("access", "read")
     access, error = reg, None
-    if spec.get("sandbox") in SANDBOX.values():
-        access = "write" if spec["sandbox"] == "workspace-write" else "read"
+    if spec.get("sandbox") == "read-only":
+        access = "read"
+    elif spec.get("sandbox") == "workspace-write" and reg == "read":
+        error = "sandbox workspace-write шире read-only роли"
+
     if spec.get("access") in ACCESS_ORDER:
         if ACCESS_ORDER[spec["access"]] > ACCESS_ORDER[reg]:
             error = f"access {spec['access']} шире, чем в реестре ({reg})"
@@ -661,7 +668,7 @@ def engines_section(res):
 
 # ------------------------------------------------------------------ argv
 def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", timeout=None,
-               resume=None, profile=None, available=None, have_config=True, cwd=None):
+               resume=None, profile=None, available=None, have_config=True, cwd=None, native_available=False, retry_quota=False):
     h = HOSTS[host]
     res = resolve(cfg, host, available if available is not None else discover_available(cfg),
                   profile=profile, have_config=have_config)
@@ -673,11 +680,30 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
     eng = engine_def(cfg, engine)
     if eng is None:
         raise ValueError(f"для движка {engine} нет пресета")
+    project = Path(cwd or os.getcwd()).resolve()
+    if engine == "codex" and ROLES.get(role, {}).get("commits") and eng.get("git_flags"):
+        roots = git_roots(project)
+        linked = len(roots) > 1 and (project / ".git").is_file()
+        if linked and native_available:
+            if cfg.get("fallback", "host") == "fail":
+                raise ValueError("Codex linked worktree requires a native executor, but fallback is disabled")
+            return {"native": True, "role": role, "engine": engine,
+                    "reason": "linked Git worktree: avoid overlapping writable Git metadata in Codex CLI"}
+    if resume:
+        last = latest_call(run_dir, name or role)
+        previous = done_data(f"{last}.done") if last else {}
+        if previous.get("engine") and previous["engine"] != engine:
+            raise ValueError("the previous session belongs to another engine; start with its handover instead")
     _, prof = active_profile(cfg, profile)
     spec = effective_roles(cfg, prof).get(role, {})
     if not spec.get("engine") and engine == h["engine"]:   # роль без назначения на движке хоста (правило 1)
         spec = dict(spec, model=spec.get("model") or res["detail"][role]["model"])
-    access = call_access(eng, role, role_access(role, spec)[0])
+    requested_access, access_error = role_access(role, spec)
+    if access_error:
+        raise ValueError(access_error)
+    access = call_access(eng, role, requested_access)
+    if requested_access == "read" and access != requested_access:
+        raise ValueError(f"{engine} cannot run this role's commands read-only; choose a compatible executor")
     session = resume or (str(uuid.uuid4()) if eng.get("caller_session") else "")
     values = {"{model}": model_of(cfg, spec, eng), "{effort}": effort_of(spec, eng),
               "{sandbox}": SANDBOX[access], "{session}": session,
@@ -691,6 +717,8 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
         if tok == "{git_flags}":    # запись в .git — только роли, что коммитят, и только если это репозиторий
             roots = git_roots(cwd or os.getcwd()) if access == "write" and ROLES.get(role, {}).get("commits") else []
             if roots and eng.get("git_flags"):
+                # A child Git directory is already covered by its common parent.
+                roots = [p for p in roots if not any(Path(p).is_relative_to(q) for q in roots if q != p)]
                 argv += [f.replace("{git_roots}", json.dumps(roots)) for f in shlex.split(eng["git_flags"])]
             continue
         for k, v in values.items():
@@ -699,16 +727,23 @@ def build_argv(cfg, host, role, name, run_dir, prompt, *, task="", report="", ti
                     raise ValueError(f"в шаблоне {engine} нужен {k}, а значения нет")
                 tok = tok.replace(k, v)
         argv.append(tok)
+    name = component(name or role)
     launcher = [str(LAUNCHER), "--role", name or role, "--run-dir", str(run_dir), "--prompt", str(prompt), "--engine", engine]
     if task:
         launcher += ["--task", str(task)]
     if report:
         launcher += ["--report", report]
-    tmo = timeout or ROLES.get(role, {}).get("timeout")
-    if tmo:
+    tmo, timeout_source = engine_timeout(run_dir, name, timeout)
+    if timeout_source == "launcher-default":
+        tmo = ROLES.get(role, {}).get("timeout")
+    if tmo is not None:
         launcher += ["--timeout", str(tmo)]
     if eng.get("caller_session"):
         launcher += ["--session", session]
+    if cwd:
+        launcher += ["--cwd", str(Path(cwd).resolve())]
+    if retry_quota:
+        launcher += ["--retry-quota"]
     command = ("PATH=\"$HOME/.local/bin:$PATH\" " if eng.get("path_prefix") else "") + \
         " ".join([shlex.quote(a) for a in launcher] + ["--"] + [shlex.quote(a) for a in argv])
     return {"role": role, "name": name or role, "engine": engine, "access": access, "launcher": launcher,
@@ -842,7 +877,11 @@ def main(argv):
     p.add_argument("--run-dir", required=True); p.add_argument("--prompt", required=True)
     p.add_argument("--task", default=""); p.add_argument("--report", default=""); p.add_argument("--timeout", type=int)
     p.add_argument("--resume", nargs="?", const="auto"); p.add_argument("--available")
-    p.add_argument("--cwd", help="корень проекта (по умолчанию текущий каталог): откуда брать каталоги git для ролей с коммитом"); common(p)
+    p.add_argument("--cwd", help="рабочий каталог исполнителя и корень проверки Git")
+    p.add_argument("--native-available", action="store_true",
+                   help="host can actually start a native executor as fallback")
+    p.add_argument("--retry-quota", action="store_true", help="operator confirmed the quota reset")
+    common(p)
     p = sub.add_parser("validate"); common(p)
     p = sub.add_parser("lang", help="язык вывода для человека (121-604)")
     p.add_argument("--lang", help="ru | en — явный выбор, главнее всего")
@@ -904,15 +943,19 @@ def main(argv):
         if args.cmd == "argv":
             resume = args.resume
             if resume == "auto":
-                sess = Path(args.run_dir) / "engine" / (args.name or args.role) / "session.txt"
+                sess = Path(args.run_dir) / "engine" / component(args.name or args.role) / "session.txt"
                 if not sess.is_file():
                     raise ValueError(f"нет сессии для продолжения: {sess}")
                 resume = sess.read_text(encoding="utf-8").strip()
             built = build_argv(cfg, host, args.role, args.name, args.run_dir, args.prompt, task=args.task,
                                report=args.report, timeout=args.timeout, resume=resume, profile=args.profile,
-                               available=available, have_config=bool(used), cwd=args.cwd)
+                               available=available, have_config=bool(used), cwd=args.cwd, native_available=args.native_available,
+                               retry_quota=args.retry_quota)
             if built is None:
                 emit({"native": True, "role": args.role}, args.json, f"роль {args.role} исполняет родной исполнитель: команды нет")
+                return 3
+            if built.get("native"):
+                emit(built, args.json, f"native fallback: {built['reason']}")
                 return 3
             emit(built, args.json, built["command"])
             return 0

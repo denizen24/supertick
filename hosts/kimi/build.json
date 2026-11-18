@@ -3,6 +3,7 @@
   "output": "build/kimi/supertick",
   "note": "Сборка для Kimi Code CLI (121-567, H1): плагин с kimi.plugin.json. Типы агентов — брифы core/roles с YAML-шапкой (frontmatter). Результат не в git (build/ в .gitignore); ставит tools/install-kimi.sh.",
   "include": [
+    {"from": "docs/run-recovery.md", "to": "docs/run-recovery.md"},
     {
       "from": "core/scripts",
       "to": "scripts",

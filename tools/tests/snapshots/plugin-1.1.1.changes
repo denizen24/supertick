@@ -22,3 +22,11 @@ agents/tech-lead.md  121-604: строка LANG: в шапке и язык за�
 skills/team-feature/SKILL.md  121-604: шаг 0c (язык), --lang, лента на языке Language:; в CHANGELOG
 skills/team-feature/references/phase1-planning.md  121-604: LANG: в шапке промптов, Language: в state.md; в CHANGELOG
 skills/interviewed-team-feature/SKILL.md  121-604: язык разговора и брифа, --lang при передаче команде; в CHANGELOG
+scripts/run_support.py  121-613: атомарные метаданные, срок и забор частичного результата
+scripts/engine-process.py  121-613: срок процесса, учёт очереди и завершение дочерних процессов
+scripts/run-checks.py  121-613: изоляция, снимки и повтор проверок
+scripts/probe-access.py  121-613: проверка фактических прав на связанном worktree
+agents/ci-verifier.md  121-613: контрольные точки проверки
+skills/team-feature/references/phase2-monitoring.md  121-613: ручная приёмка и Tooling документации
+docs/run-recovery.md  121-613: руководство по восстановлению в установленном наборе
+agents/proxy-teammate.md  121-613: отделять частичный ответ, лимит провайдера и повтор проверки

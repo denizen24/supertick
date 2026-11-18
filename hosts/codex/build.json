@@ -3,6 +3,7 @@
   "output": "build/codex/supertick",
   "note": "Сборка для Codex CLI (121-567, H4): плагин с .codex-plugin/plugin.json и навыками team-feature и setup. Родных типов исполнителей у Codex нет — роли идут движком codex (engine-config: roles_on_engine). Результат не в git (build/ в .gitignore); ставит tools/install-codex.sh.",
   "include": [
+    {"from": "docs/run-recovery.md", "to": "docs/run-recovery.md"},
     {"from": "core/scripts", "to": "scripts", "exclude": ["tests"]},
     {"from": "core/engines", "to": "engines"},
     {"from": "core/references", "to": "references"},

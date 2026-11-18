@@ -94,7 +94,7 @@ class KimiStreamJsonParsing(unittest.TestCase):
         for name in ("error-model.txt", "error-sess.txt"):
             with self.subTest(fixture=name):
                 fields, _ = self.run_fixture(name)
-                self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
+                self.assertEqual((fields["status"], fields["failure_kind"]), ("failed", "engine_exit"))
 
 
 FIXTURE_CODEX = r'''#!/usr/bin/env python3
@@ -146,7 +146,7 @@ class CodexJsonlParsing(unittest.TestCase):
 
     def test_a_failed_model_call_fails_with_the_exit_code(self):
         fields, _ = self.run_fixture("error-model.jsonl")
-        self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
+        self.assertEqual((fields["status"], fields["failure_kind"]), ("failed", "provider_error"))
         self.assertTrue(fields["session"], "thread.started есть и у провалившегося вызова")
 
 
@@ -172,10 +172,9 @@ class NewPresetsArgv(unittest.TestCase):
                          ["kimi", "-m", "kimi-code/k3", "--output-format", "stream-json", "-p", "{prompt}"])
         self.assertEqual(ec.validate({"roles": {"coder": "kimi"}})[0], [])
 
-    def test_kimi_role_with_commands_takes_write_because_the_read_profile_has_no_shell(self):
-        built = self.argv("kimi", "spec-verifier")
-        self.assertEqual(built["access"], "write")
-        self.assertNotIn("--agent-file", built["argv"])
+    def test_kimi_read_role_with_commands_requires_compatible_executor(self):
+        with self.assertRaisesRegex(ValueError, "cannot run this role's commands read-only"):
+            self.argv("kimi", "spec-verifier")
 
     def test_claude_is_isolated_and_maps_access_to_tools(self):
         iso = ["--disable-slash-commands", "--strict-mcp-config", "--setting-sources", "project,local"]
@@ -235,15 +234,20 @@ class NewPresetsArgv(unittest.TestCase):
     def test_codex_coder_outside_a_repository_gets_no_git_flags(self):
         self.assertFalse([a for a in self.codex("coder", cwd=tmpdir(self))["argv"] if "writable_roots" in a])
 
-    def test_codex_in_a_git_worktree_gets_both_the_worktree_and_the_common_git_dir(self):
+    def test_codex_in_a_git_worktree_gets_only_the_common_git_dir(self):
         main = self.git_repo()
         subprocess.run(["git", "-C", str(main), "-c", "user.name=t", "-c", "user.email=t@l", "commit", "-q", "--allow-empty", "-m", "i"], check=True)
         wt = tmpdir(self) / "wt"
         subprocess.run(["git", "-C", str(main), "worktree", "add", "-q", str(wt)], check=True)
         arg = [a for a in self.codex("coder", cwd=wt)["argv"] if "writable_roots" in a][0]
         got = json.loads(arg.split("=", 1)[1])
-        self.assertEqual(len(got), 2)
-        self.assertEqual(sorted(got), sorted([str((main / ".git").resolve()), str((main / ".git" / "worktrees" / "wt").resolve())]))
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got, [str((main / ".git").resolve())])
+        cfg = {"roles": {"coder": "codex"}}
+        native = ec.build_argv(cfg, "codex", "coder", None, "/run", "/p", cwd=wt,
+                               available={"codex"}, native_available=True)
+        self.assertTrue(native["native"])
+        self.assertIn("linked Git worktree", native["reason"])
 
     def test_codex_host_has_native_subagents_but_is_level_l1(self):
         self.assertEqual((ec.HOSTS["codex"]["level"], ec.HOSTS["codex"]["subagents"], ec.HOSTS["codex"]["native"]), ("L1", True, "native"))
@@ -287,7 +291,7 @@ class MockEngineEndToEnd(unittest.TestCase):
         self.assertIn("(read, mock-1)", result)
 
     def test_failure_modes(self):
-        for mode, status, reason in (("fail", "failed", "exit 3"), ("is_error", "failed", "engine reported is_error"),
+        for mode, status, reason in (("fail", "failed", "exit 3"), ("is_error", "failed", "provider_error (exit 0)"),
                                      ("no-session", "done", None)):
             with self.subTest(mode=mode):
                 fields, _ = self.launch(mode=mode)

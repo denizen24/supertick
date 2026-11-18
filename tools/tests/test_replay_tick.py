@@ -95,6 +95,7 @@ class Compare(unittest.TestCase):
     def test_extra_event_in_new_tick_is_caught(self):
         with tempfile.TemporaryDirectory() as tmp:
             patched = Path(tmp) / "tick-patched.py"
+            (patched.parent / "run_support.py").write_bytes(NEW_TICK.with_name("run_support.py").read_bytes())
             src = NEW_TICK.read_text(encoding="utf-8")
             marker = "    calls = engine_calls(run_dir, now)\n"
             self.assertIn(marker, src)

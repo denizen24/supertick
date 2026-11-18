@@ -3,6 +3,7 @@
   "output": "plugins/supertick",
   "note": "Сборка для Claude Code (121-567, F2): plugins/supertick/ — результат, руками не правится. Пока сборка равна 1.1.1 побайтно (tools/tests/snapshots/plugin-1.1.1.manifest); каждое осознанное расхождение — в plugin-1.1.1.changes и в CHANGELOG.",
   "include": [
+    {"from": "docs/run-recovery.md", "to": "docs/run-recovery.md"},
     {"from": "core/scripts",                           "to": "scripts"},
     {"from": "core/engines",                           "to": "engines"},
     {"from": "core/references",                        "to": "references"},

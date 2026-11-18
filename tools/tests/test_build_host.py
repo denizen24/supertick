@@ -157,6 +157,24 @@ class BuilderBehaviour(unittest.TestCase):
         self.assertEqual(into_core.returncode, 2)
         self.assertIn("совпадает с исходниками", into_core.stderr)
 
+    def test_build_refuses_symlinks_in_input_and_output(self):
+        root = self.fake_repo()
+        fixture = root / "hosts/h/b.md"
+        source = root / "core/link"
+        source.symlink_to(fixture)
+        failed = build("h", root=root)
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("символьная ссылка в источнике", failed.stderr)
+        source.unlink()
+        self.assertEqual(build("h", root=root).returncode, 0)
+        output = root / "out/h/b.md"
+        output.unlink()
+        output.symlink_to(fixture)
+        failed = build("h", root=root)
+        self.assertEqual(failed.returncode, 2)
+        self.assertIn("символьная ссылка", failed.stderr)
+        self.assertEqual(fixture.read_text(), "b\n")
+
     def test_unknown_host_is_a_clear_error(self):
         done = build("nope")
         self.assertEqual(done.returncode, 2)

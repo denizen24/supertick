@@ -3,6 +3,7 @@
   "output": "build/opencode",
   "note": "Сборка для OpenCode (121-567, H3): весь набор лежит внутри навыка skills/supertick-team-feature/ — каталоги навыков OpenCode открыты для чтения и ведущему, и субагентам (вне проекта иначе external_directory: ask, а в opencode run это отказ); рядом навык supertick-setup и агенты ролей agents/supertick-<роль>.md с правами (permission). Результат не в git; ставит tools/install-opencode.sh в ~/.config/opencode/.",
   "include": [
+    {"from": "docs/run-recovery.md", "to": "skills/supertick-team-feature/docs/run-recovery.md"},
     {
       "from": "core/scripts",
       "to": "skills/supertick-team-feature/scripts",

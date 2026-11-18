@@ -74,10 +74,10 @@ class OpencodeJsonParsing(unittest.TestCase):
 
     def test_errors_fail_with_the_exit_code(self):
         fields, _ = self.run_fixture("error-model.jsonl")
-        self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
+        self.assertEqual((fields["status"], fields["failure_kind"]), ("failed", "provider_error"))
         self.assertEqual(fields["session"], "ses_e27c1c4beffe4PibAxPjKgl1Cd", "сессия заведена и у провалившегося вызова")
         fields, _ = self.run_fixture("error-session.txt")
-        self.assertEqual((fields["status"], fields["reason"]), ("failed", "exit 1"))
+        self.assertEqual((fields["status"], fields["failure_kind"]), ("failed", "engine_exit"))
 
 
 class OpencodePresetArgv(unittest.TestCase):

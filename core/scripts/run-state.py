@@ -17,10 +17,12 @@ startedAt — от него тик считает первую минуту, а 
 тот же JSON инструментом Write — поля те же.
 """
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_support import alive, append_record, component, latest_call, take_result, validate_run_directory, write_json
 
 LISTS = ("files", "acceptance", "nonGoals", "commits")
 
@@ -55,27 +57,48 @@ def role_access(role):
     return ec.ROLES.get(role, {}).get("access", "")
 
 
-def write(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
-
-
 def main(argv):
     if len(argv) < 2:
         raise SystemExit(__doc__)
     cmd, run = argv[0], Path(argv[1])
+    if cmd == "take" and (len(argv) == 3 or (len(argv) == 4 and argv[3] == "--head")):
+        result = take_result(run, argv[2])
+        if len(argv) == 4 and result["report"]:
+            with open(result["report"], encoding="utf-8", errors="replace") as stream:
+                lines = (line for line in stream if line.strip())
+                from itertools import islice
+                print("".join(islice(lines, 3)), end="")
+        else:
+            print(json.dumps(result, ensure_ascii=False))
+        return 0
+    if cmd == "manual-accept" and len(argv) >= 3:
+        import re
+        task, fields = component(argv[2]), parse(argv[3:])
+        if not re.fullmatch(r"[0-9a-f]{7,64}", fields.get("commit", "")) or not all(
+            fields.get(key, "").strip() for key in ("reason", "evidence")
+        ):
+            raise ValueError("manual-accept requires commit=<sha> reason=<reason> evidence=<approval link or record>")
+        validate_run_directory(run)
+        path = run / "reports" / f"manual-accept-task{task}.json"
+        if path.exists():
+            raise ValueError(f"manual acceptance exists: {path}")
+        write_json(path, {**fields, "status": "MANUAL_ACCEPTED", "task": task, "at": now()})
+        print(path)
+        return 0
     if cmd == "show":
         names = [argv[2]] if len(argv) > 2 else [p.stem for p in sorted((run / "runs").glob("*.json"))]
         for n in names:
+            component(n)
             print(n, json.dumps(json.loads((run / "runs" / f"{n}.json").read_text(encoding="utf-8")), ensure_ascii=False))
         return 0
     if len(argv) < 3:
         raise SystemExit(__doc__)
-    name, fields = argv[2], parse(argv[3:])
+    name, fields = component(argv[2]), parse(argv[3:])
     path = run / "runs" / f"{name}.json"
     if cmd == "new":
+        call = latest_call(run, name)
+        if call and not Path(f"{call}.done").exists() and alive(Path(f"{call}.pid").read_text().strip()):
+            raise ValueError("cannot replace the card of a running engine")
         role, task = fields.pop("role", ""), fields.pop("task", "")
         data = {"name": name, "role": role, "task": task,
                 "spawnedAt": now(), "lastEventAt": now(), "status": "running" if task else "idle",
@@ -84,14 +107,29 @@ def main(argv):
         data.update(fields)
         if "executor" in data and "access" not in data:   # общий протокол (121-567, X1): доступ роли из реестра
             data["access"] = role_access(role)
-        write(path, data)
+        write_json(path, data)
+        if data.get("executor") == "native":
+            append_record(run / "ledger.jsonl", {"ts": now(), "event": "native_card", "role": name,
+                          "task": task, "engine": "native", "role_type": role})
     elif cmd == "set":
         data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"name": name, "spawnedAt": now()}
+        native_start = data.get("executor") == "native" and not data.get("startedAt") and (
+            fields.get("status") == "running" or fields.get("note", "").startswith("agent=")
+        )
+        if "timeoutSec" in fields and str(fields["timeoutSec"]) != str(data.get("timeoutSec", "")):
+            call = latest_call(run, name)
+            if call and not Path(f"{call}.done").exists():
+                pid_file = Path(f"{call}.pid")
+                if pid_file.exists() and alive(pid_file.read_text().strip()):
+                    raise ValueError("the running engine deadline is immutable; set timeoutSec before the next launch")
         data.update(fields)
         data["lastEventAt"] = now()
-        if fields.get("status") == "running" and not data.get("startedAt"):
+        if native_start or (fields.get("status") == "running" and not data.get("startedAt")):
             data["startedAt"] = data["lastEventAt"]
-        write(path, data)
+        write_json(path, data)
+        if native_start:
+            append_record(run / "ledger.jsonl", {"ts": data["lastEventAt"], "event": "native_launch",
+                          "role": name, "task": data.get("task"), "role_type": data.get("role"), "engine": "native"})
     else:
         raise SystemExit(__doc__)
     print(path)
@@ -99,4 +137,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError) as exc:
+        sys.exit(f"run-state: {exc}")

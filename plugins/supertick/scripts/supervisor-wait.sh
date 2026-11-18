@@ -34,14 +34,22 @@ run=$(cd "$run" && pwd)
 # кроме себя и своих предков (обёртка `bash -c` среды тоже содержит эту строку). Без pid-файла: файл
 # терялся в гонке «новое пишет pid — ловушка выхода старого его стирает» (V1, второй прогон R2).
 other_waits() {
-  local anc=" " p=$BASHPID pid cmd   # BASHPID: подоболочка $(…) — тоже «я»
+  local anc=" " p=$BASHPID pid cmd candidates=" " parent   # BASHPID: подоболочка $(…) — тоже «я»
   while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
     anc="$anc$p "; p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
   done
   for pid in $(pgrep -f "supervisor-wait.sh" 2>/dev/null); do
     case "$anc" in *" $pid "*) continue ;; esac
     cmd=$(ps -o command= -p "$pid" 2>/dev/null) || continue
-    case "$cmd " in *"supervisor-wait.sh $run "*|*"supervisor-wait.sh $run/ "*) echo "$pid" ;; esac
+    case "$cmd " in *"supervisor-wait.sh $run "*|*"supervisor-wait.sh $run/ "*) candidates="$candidates$pid " ;; esac
+  done
+  # A shell child can appear with its parent's command line until exec.
+  # Signal only the outer supervisor; its own trap handles the wait.
+  for pid in $candidates; do
+    parent=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -n "$parent" ] || continue
+    case "$candidates" in *" $parent "*) continue ;; esac
+    echo "$pid"
   done
 }
 
@@ -68,6 +76,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$wake" in P0|P1|P2|P3) ;; *) echo "supervisor-wait: --wake-on ждёт P0..P3" >&2; exit 2 ;; esac
+if [ -e "$run/.git" ] || { [ -n "$root" ] && [ "$run" = "$(cd "$root" && pwd)" ]; }; then
+  echo "supervisor-wait: not a run directory: $run" >&2
+  exit 2
+fi
 rootarg=(); [ -n "$root" ] && rootarg=(--root "$(cd "$root" && pwd)")
 case "$mode" in ""|claude|shared) ;; *) echo "supervisor-wait: --mode ждёт claude или shared" >&2; exit 2 ;; esac
 [ -n "$mode" ] && rootarg+=(--mode "$mode")

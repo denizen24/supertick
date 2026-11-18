@@ -67,7 +67,7 @@ if [ "${1:-}" = "--status" ]; then
       if [ -f "$base.taken" ]; then st="taken"; else st="DONE-UNREAD"; fi
       echo "$st $base $(tr '\n' ' ' < "$base.done")"
     elif [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      echo "RUNNING $base pid=$pid"
+      echo "RUNNING $base pid=$pid $(tr '\n' ' ' < "$base.limit" 2>/dev/null || true)"
     else
       echo "DEAD $base pid=$pid (no .done, process gone)"
     fi
@@ -79,6 +79,7 @@ fi
 if [ "${1:-}" = "__worker" ]; then
   shift
   out="$RE_OUT"; dir=$(dirname "$out")
+  printf 'timeout=%ss\nsource=%s\n' "$RE_TIMEOUT" "$RE_TIMEOUT_SOURCE" > "$out.limit"
   echo $$ > "$out.pid"
   started=$(date -Is); t0=$(date +%s)
   model=""; prev=""   # the model as the engine command names it (--model X | --model=X | -m X)
@@ -88,7 +89,7 @@ if [ "${1:-}" = "__worker" ]; then
     prev="$a"
   done
   json_line ts "$started" event launch role "$RE_ROLE" engine "$RE_ENGINE" model "$model" task "$RE_TASK" \
-    label "$RE_LABEL" pid "$$" session "$RE_SESSION" prompt "$RE_PROMPT" out "$out" >> "$RE_LEDGER"
+    label "$RE_LABEL" pid "$$" timeout_s "$RE_TIMEOUT" timeout_source "$RE_TIMEOUT_SOURCE" session "$RE_SESSION" prompt "$RE_PROMPT" out "$out" >> "$RE_LEDGER"
 
   prompt_text=$(cat "$RE_PROMPT")
   argv=()
@@ -98,8 +99,13 @@ if [ "${1:-}" = "__worker" ]; then
     argv+=("$a")
   done
 
-  timeout -k 30 "$RE_TIMEOUT" "${argv[@]}" < /dev/null > "$out.part" 2>&1
+  python3 "$(dirname "$0")/engine-process.py" "$RE_TIMEOUT" "$out.failure" "$(dirname "$RE_LEDGER")" "$RE_ROLE" "${argv[@]}" < /dev/null > "$out.part" 2>&1 &
+  child=$!
+  trap 'kill -TERM "$child" 2>/dev/null || true' TERM INT
+  wait "$child"
   rc=$?
+  if kill -0 "$child" 2>/dev/null; then wait "$child"; rc=$?; fi
+  trap - TERM INT
   mv "$out.part" "$out"
   ended=$(date -Is); wall=$(( $(date +%s) - t0 ))
 
@@ -183,21 +189,44 @@ if result is None:
     result = text
 if result.strip():
     open(res, "w", encoding="utf-8").write(result if result.endswith("\n") else result + "\n")
-print(session + ("\tERROR" if is_error else ""))
+errors = []
+for line in text.splitlines():
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue
+    if isinstance(event, dict) and (event.get("is_error") or event.get("type") in
+                                    ("error", "turn.failed", "provider.api_error")):
+        errors.append(json.dumps(event, ensure_ascii=False))
+if errors:
+    is_error = True
+failure = ""
+if is_error:
+    error_text = "\n".join(errors + ([result] if isinstance(result, str) else []))
+    if re.search(r"quota|usage.?limit|rate.?limit|insufficient_quota|\b429\b", error_text, re.I):
+        failure = "quota"
+    elif re.search(r"flagged|safety|policy.?violation|content.?filter", error_text, re.I):
+        failure = "service_rejection"
+    else:
+        failure = "provider_error"
+print(session + ("\t" + failure if failure else ""))
 PY
 )
-  is_error=""
-  case "$session" in *$'\t'ERROR) is_error=1; session="${session%$'\t'ERROR}" ;; esac
+  provider_failure=""
+  case "$session" in *$'\t'*) provider_failure="${session#*$'\t'}"; session="${session%%$'\t'*}" ;; esac
   [ -z "$session" ] && session="$RE_SESSION"
   [ -n "$session" ] && printf '%s\n' "$session" > "$dir/session.txt"
 
-  status=done; reason=""
-  if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then status=failed; reason="timeout ${RE_TIMEOUT}s"
-  elif [ "$rc" -ne 0 ]; then status=failed; reason="exit $rc"
-  elif [ -n "$is_error" ]; then status=failed; reason="engine reported is_error"
-  elif [ ! -s "$out.result.md" ]; then status=failed; reason="no reply in output"
-  elif [ "$RE_ENGINE" = "cursor" ] && [ -z "$session" ]; then status=failed; reason="no JSON reply (no session_id)"
+  status=done; reason=""; failure=""
+  if [ -s "$out.failure" ]; then
+    failure=$(cat "$out.failure")
+    if [ "$failure" = timeout ]; then reason="timeout ${RE_TIMEOUT}s"; else reason="$failure (exit $rc)"; fi
+  elif [ -n "$provider_failure" ]; then failure="$provider_failure"; reason="$provider_failure (exit $rc)"
+  elif [ "$rc" -ne 0 ]; then failure=engine_exit; reason="exit $rc"
+  elif [ ! -s "$out.result.md" ]; then failure=no_reply; reason="no reply in output"
+  elif [ "$RE_ENGINE" = cursor ] && [ -z "$session" ]; then failure=no_reply; reason="no JSON reply (no session_id)"
   fi
+  [ -n "$failure" ] && status=failed
 
   report=""
   if [ -n "$RE_REPORT" ] && [ "$status" = done ]; then   # a failed call never lands in reports/
@@ -238,12 +267,16 @@ PY
 
   json_line ts "$ended" event "$status" role "$RE_ROLE" engine "$RE_ENGINE" task "$RE_TASK" \
     label "$RE_LABEL" pid "$$" exit "$rc" wall_s "$wall" session "$session" reason "$reason" \
-    model "$model" out "$out" result "$out.result.md" report "$report" report_by "${report_by:-reply}" \
+    model "$model" failure_kind "$failure" timeout_s "$RE_TIMEOUT" timeout_source "$RE_TIMEOUT_SOURCE" out "$out" result "$out.result.md" report "$report" report_by "${report_by:-reply}" \
     report_trimmed "${trimmed:-}" >> "$RE_LEDGER"
 
   {
     echo "status=$status"
     echo "exit=$rc"
+    echo "engine=$RE_ENGINE"
+    echo "timeout_s=$RE_TIMEOUT"
+    echo "timeout_source=$RE_TIMEOUT_SOURCE"
+    [ -n "$failure" ] && echo "failure_kind=$failure"
     [ -n "$reason" ] && echo "reason=$reason"
     echo "started=$started"
     echo "ended=$ended"
@@ -259,7 +292,7 @@ PY
 fi
 
 # ---------------------------------------------------------------- launcher
-role="" run="" prompt="" label="" engine="" task="" report="" session="" sregex="" tmo=3600
+role="" run="" prompt="" label="" engine="" task="" report="" session="" sregex="" tmo="" cwd="" retry_quota=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) role="$2"; shift 2 ;;
@@ -272,6 +305,8 @@ while [ $# -gt 0 ]; do
     --session) session="$2"; shift 2 ;;
     --session-regex) sregex="$2"; shift 2 ;;
     --timeout) tmo="$2"; shift 2 ;;
+    --cwd) cwd="$2"; shift 2 ;;
+    --retry-quota) retry_quota=1; shift ;;
     -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     --) shift; break ;;
     *) die "unknown option: $1 (the engine command goes after --)" ;;
@@ -281,13 +316,36 @@ done
 [ $# -gt 0 ] || die "no engine command after --"
 [ -s "$prompt" ] || die "prompt file missing or empty: $prompt"
 command -v "$1" >/dev/null 2>&1 || die "engine binary not found: $1 (for cursor-agent try PATH=\"\$HOME/.local/bin:\$PATH\")"
-case "$tmo" in ''|*[!0-9]*) die "--timeout must be seconds" ;; esac
+case "$tmo" in *[!0-9]*) die "--timeout must be seconds" ;; esac
 command -v python3 >/dev/null || die "python3 is required"
 
 mkdir -p "$run" || die "cannot create $run"
 run=$(cd "$run" && pwd)
+limits=$(python3 - "$(dirname "$0")" "$run" "$role" "$label" "$tmo" "$engine" "$retry_quota" <<'PY_LIMIT'
+import sys
+sys.path.insert(0, sys.argv[1])
+from run_support import component, engine_timeout, done_data, latest_call
+run, role, label, timeout, engine, retry = sys.argv[2:]
+try:
+    if label:
+        component(label)
+    last = latest_call(run, role)
+    if last and retry != "1":
+        previous = done_data(f"{last}.done")
+        if previous.get("failure_kind") == "quota" and previous.get("engine") == engine:
+            raise ValueError("provider quota exhausted; wait for reset or change the approved engine. Use --retry-quota after confirming reset")
+    seconds, source = engine_timeout(run, role, timeout or None)
+    if seconds < 0:
+        raise ValueError("timeout must be nonnegative")
+except (OSError, ValueError) as exc:
+    sys.exit(str(exc))
+print(seconds, source)
+PY_LIMIT
+) || exit 2
+read -r tmo timeout_source <<< "$limits"
 dir="$run/engine/$role"; mkdir -p "$dir" "$run/reports"
 prompt=$(cd "$(dirname "$prompt")" && pwd)/$(basename "$prompt")
+if [ -n "$cwd" ]; then cd "$cwd" || die "invalid --cwd: $cwd"; fi
 
 # pick a label that has never been used, and reserve it atomically (noclobber on .part)
 next_num() {
@@ -323,12 +381,14 @@ fi
 rep_pre=1; [ -n "$rep" ] && [ ! -e "$rep" ] && rep_pre=0   # absent at launch: if it appears, the engine wrote it
 RE_OUT="$out" RE_ROLE="$role" RE_ENGINE="$engine" RE_TASK="$task" RE_LABEL="$label" \
 RE_SESSION="$session" RE_SESSION_REGEX="$sregex" RE_PROMPT="$prompt" RE_REPORT="$rep" RE_REPORT_PRE="$rep_pre" \
-RE_TIMEOUT="$tmo" RE_LEDGER="$run/ledger.jsonl" \
+RE_TIMEOUT="$tmo" RE_TIMEOUT_SOURCE="$timeout_source" RE_LEDGER="$run/ledger.jsonl" \
   setsid nohup "$(readlink -f "$0")" __worker "$@" < /dev/null > /dev/null 2>&1 &
 
 for _ in $(seq 1 50); do [ -s "$out.pid" ] && break; sleep 0.1; done
 pid=$(cat "$out.pid" 2>/dev/null || echo "$!")
 echo "pid=$pid"
+echo "timeout_s=$tmo"
+echo "timeout_source=$timeout_source"
 echo "out=$out"
 echo "done=$out.done"
 echo "result=$out.result.md"

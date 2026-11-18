@@ -286,7 +286,7 @@ class TolerantHead(unittest.TestCase):
             "Отчёт приёмки\nACCEPT: task #3 — FAIL\nACCEPT: task #3 — PASS\n": "FAIL/?",
             "ACCEPT: task #3 — FAIL\nACCEPT: task #3 — PASS\n": "FAIL/?",
             "\n  \nACCEPT: task #3 — PASS\n": "PASS",
-            "ACCEPT: task #3 — FAIL (PASS 9 из 10)\n": "PASS",
+            "ACCEPT: task #3 — FAIL (PASS 9 из 10)\n": "FAIL/?",
             "  ACCEPT: task #3 — PASS\n": "FAIL/?",
             "\tACCEPT: task #3 — PASS\n": "FAIL/?",
             "\r\nACCEPT: task #3 — PASS\r\n": "PASS",

@@ -209,7 +209,7 @@ class OldPresetsOnMockEngines(unittest.TestCase):
                     self.assertEqual((fields["status"], fields["reason"]), ("failed", reason))
 
     def test_cursor_specific_failures(self):
-        for mode, reason in (("is_error", "engine reported is_error"), ("no-json", "no JSON reply (no session_id)")):
+        for mode, reason in (("is_error", "provider_error (exit 0)"), ("no-json", "no JSON reply (no session_id)")):
             with self.subTest(mode=mode):
                 fields, _ = self.launch("cursor", render("cursor", "cmd"), role=f"cursor-{mode}", mode=mode)
                 self.assertEqual((fields["status"], fields["reason"]), ("failed", reason))

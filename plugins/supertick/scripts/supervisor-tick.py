@@ -115,6 +115,10 @@ NEEDS_ANSWER = ("QUESTION", "ESCALATION", "SENSITIVE", "QUEUED", "REVIEW_LOOP")
 PRIORITY = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_support import alive, component, done_data, validate_run_directory, write_json
+
+
 def parse_ts(value):
     """ISO-время в aware datetime; пустое или кривое — None."""
     if not value:
@@ -287,22 +291,17 @@ def engine_calls(run_dir, now):
             pid = 0
         if done.exists():
             state = "taken" if taken.exists() else "done-unread"
-            failed = "status=failed" in done.read_text(encoding="utf-8", errors="replace")
+            metadata = done_data(done)
+            failed = metadata.get("status") == "failed"
             age = int(now.timestamp() - done.stat().st_mtime)
             calls.append({"role": role, "base": str(base), "state": state, "failed": failed, "age": age,
-                          "done_at": done.stat().st_mtime})
+                          "done_at": done.stat().st_mtime,
+                          "failure_kind": metadata.get("failure_kind"), "reason": metadata.get("reason")})
         else:
-            alive = False
-            if pid:
-                try:
-                    os.kill(pid, 0)
-                    alive = True
-                except ProcessLookupError:
-                    alive = False
-                except PermissionError:
-                    alive = True
-            calls.append({"role": role, "base": str(base), "state": "running" if alive else "dead",
-                          "failed": False, "age": int(now.timestamp() - pid_file.stat().st_mtime)})
+            limit = done_data(f"{base}.limit")
+            calls.append({"role": role, "base": str(base), "state": "running" if alive(pid) else "dead",
+                          "failed": False, "age": int(now.timestamp() - pid_file.stat().st_mtime),
+                          "timeout": limit.get("timeout")})
     return calls
 
 
@@ -452,7 +451,7 @@ def shared_executors(run_dir, runs, calls, now, add):
         age = int((now - started).total_seconds()) if started else None
         mine = [c for c in calls if c["role"] == name]
         report = run.get("report")
-        if report:
+        if report and run.get("executor") != "engine":
             path = run_dir / report
             try:
                 fresh = path.is_file() and (started is None or path.stat().st_mtime >= started.timestamp())
@@ -683,9 +682,7 @@ def write_mirror(run_dir):
     if isinstance(old, dict) and old.get("revision") == content["revision"]:
         return False
     path.parent.mkdir(exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(content, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    write_json(path, content)
     return True
 
 
@@ -753,11 +750,12 @@ def tick(run_dir, root=None, now=None, mode="claude"):
     if mode not in MODES:
         raise SystemExit(f"supervisor-tick: --mode ждёт одно из {', '.join(MODES)}")
     shared = mode == "shared"
-    run_dir = Path(run_dir).resolve()
-    if not run_dir.is_dir():
-        raise SystemExit(f"supervisor-tick: нет каталога прогона {run_dir}")
+    try:
+        run_dir = validate_run_directory(run_dir, root)
+    except ValueError as exc:
+        raise SystemExit(f"supervisor-tick: {exc}") from exc
     now = now or datetime.now(timezone.utc).astimezone()
-    root = Path(root) if root else run_dir.resolve().parents[1]
+    root = Path(root) if root else run_root(run_dir)
     memory_file = run_dir / "state" / "supervisor.json"
     memory = read_json(memory_file, {})
     firsts = memory.get("firstMinute", {})          # name -> "ok" | "p2" | "p1" (какая тревога уже подана)
@@ -834,7 +832,7 @@ def tick(run_dir, root=None, now=None, mode="claude"):
             if report.exists():
                 lines = report.read_text(encoding="utf-8", errors="replace").splitlines()
                 first = next((line for line in lines if line.strip()), "")   # вердикт — только первая непустая строка
-                verdict = "PASS" if re.search(r"^ACCEPT:.*\bPASS\b", first) else "FAIL/?"
+                verdict = "PASS" if acceptance_pass(first, task) else "FAIL/?"
                 add("P1", "accept_result", detail=f"task {task}: отчёт приёмки готов ({verdict})", ref=f"reports/accept-task{task}.md")
 
     # ---- движки
@@ -843,7 +841,7 @@ def tick(run_dir, root=None, now=None, mode="claude"):
         if call["state"] == "dead":
             add("P0", "engine_dead", run=call["role"], detail=f"процесс исчез без маркера .done", ref=call["base"])
         elif call["state"] == "done-unread" and call["failed"]:
-            add("P0", "engine_failed_unread", run=call["role"], detail="движок упал, отчёт не забран", ref=call["base"] + ".done")
+            add("P0", "engine_failed_unread", run=call["role"], detail=call.get("reason") or "движок упал, отчёт не забран", ref=call["base"] + ".done")
         elif call["state"] == "done-unread" and call["age"] >= engine_unread_sec(run_dir, runs, call):
             add("P0", "engine_result_unread", run=call["role"],
                 detail=f"результат готов {call['age'] // 60} мин, никто не забрал", ref=call["base"] + ".result.md")
@@ -852,8 +850,15 @@ def tick(run_dir, root=None, now=None, mode="claude"):
             add("P1", "engine_result_ready", run=call["role"], detail=f"результат готов {call['age']} с назад",
                 ref=call["base"] + ".result.md")
 
+    activity = check_activity(run_dir)
+    for check in activity:
+        if check["status"] == "queued":
+            holder = check.get("holder") or {}
+            add("P3", "check_queued", run=check["executor"],
+                detail=f"{check['check']}: {check['queueSeconds']} s; holder: {holder.get('check', '?')}")
     if shared:
-        shared_executors(run_dir, runs, calls, now, add)
+        active = {check["executor"] for check in activity if check["status"] in ("queued", "preparing", "running")}
+        shared_executors(run_dir, {name: run for name, run in runs.items() if name not in active}, calls, now, add)
 
     # ---- бюджеты и контракт доступа: только когда ведущий записал `## Budgets` / карточки с `access`
     budgets = state_budgets(run_dir)
@@ -943,14 +948,15 @@ def tick(run_dir, root=None, now=None, mode="claude"):
     }
     if shared:
         snapshot["mode"] = "shared"
+        snapshot["progress"] = run_progress(run_dir, tasks, runs, budgets)
+    if activity:
+        snapshot["checks"] = activity
     if budgets is not None or budget_fired:
         snapshot["budget"] = budget_fired
     if shared:
         write_mirror(run_dir)   # зеркало для внешних наблюдателей; ведущий и роли его не читают
     (run_dir / "state").mkdir(exist_ok=True)
-    tmp = memory_file.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, memory_file)
+    write_json(memory_file, snapshot)
     return snapshot
 
 
@@ -985,6 +991,78 @@ def plan_check(run_dir):
     return 0, lines
 
 
+def run_root(run):
+    if run.parent.name == "teams" and run.parent.parent.name == ".supertick":
+        return run.parents[2]
+    return run.parents[min(1, len(run.parents) - 1)]
+
+
+def run_progress(run_dir, tasks, runs, budgets):
+    counts = {}
+    prepared = {}
+    ledger = ledger_records(run_dir)
+    activity = [c.get("lastEventAt") for c in runs.values()] + [e.get("ts") for e in ledger]
+    for record in ledger:
+        event = record.get("event")
+        if event in ("launch", "native_launch", "native_card"):
+            name = record["role"]
+            role = record.get("role_type") or runs.get(name, {}).get("role") or name
+            target = prepared if event == "native_card" else counts
+            target[role] = target.get(role, 0) + 1
+    last = max(filter(None, map(parse_ts, activity)), default=None)
+    return {
+        "tasksDone": sum(task["status"] == "DONE" for task in tasks.values()),
+        "tasksTotal": len(tasks),
+        "remainingTasks": [name for name, task in tasks.items() if task["status"] != "DONE"],
+        "launchesByRole": counts,
+        "nativeCardsByRole": prepared,
+        "budgetMode": (budgets or {}).get("mode"),
+        "budgetNotes": [detail for _, _, detail in budget_events(run_dir, tasks, runs, budgets)],
+        "lastActivity": last.isoformat() if last else "",
+    }
+
+
+def check_activity(run_dir):
+    active = []
+    for path in sorted((run_dir / "state" / "checks").glob("*.json")):
+        value = read_json(path, {})
+        if not isinstance(value, dict) or not {"check", "executor", "status", "pid"} <= value.keys():
+            continue
+        if value["status"] in ("queued", "preparing", "running") and not alive(value["pid"]):
+            value["status"] = "interrupted"
+        active.append(value)
+    return active
+
+
+def acceptance_pass(first, task):
+    return re.fullmatch(r"ACCEPT: task #?" + re.escape(task) + r" (?:[—–-] )?PASS[ \t]*", first) is not None
+
+
+def manual_acceptance(reports, task, commits, root):
+    from run_support import read_json as read_metadata
+
+    try:
+        record = read_metadata(reports / f"manual-accept-task{component(task)}.json", {})
+    except (OSError, ValueError):
+        return False
+    if not isinstance(record, dict) or record.get("status") != "MANUAL_ACCEPTED" or record.get("task") != task:
+        return False
+    sha = record.get("commit", "")
+    return (isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{7,64}", sha)
+            and any(commit.startswith(sha) or sha.startswith(commit) for commit in commits)
+            and all(git_is_ancestor(root, commit, sha) for commit in commits)
+            and all(isinstance(record.get(key), str) and record[key].strip() for key in ("reason", "evidence")))
+
+
+def git_is_ancestor(root, before, after):
+    import subprocess
+    try:
+        return subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", before, after],
+                              capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def git_has_commit(root, sha):
     import subprocess
     try:
@@ -996,8 +1074,8 @@ def git_has_commit(root, sha):
 
 def postrun_check(run_dir, root=None, now=None):
     """`postrun-check <run>`: механические сверки перед сводкой. Список находок (пусто — всё сходится)."""
-    run_dir = Path(run_dir).resolve()
-    root = Path(root) if root else run_dir.parents[2] if run_dir.parent.parent.name == ".supertick" else run_dir.parents[1]
+    run_dir = validate_run_directory(run_dir, root)
+    root = Path(root) if root else run_root(run_dir)
     now = now or datetime.now(timezone.utc).astimezone()
     findings = []
     tasks = plan_tasks(run_dir)
@@ -1005,19 +1083,14 @@ def postrun_check(run_dir, root=None, now=None):
     for task, info in tasks.items():
         if info["status"] != "DONE":
             continue
-        shas = []
-        for f in sorted(reports.glob(f"task{task}-coder*.md")) if reports.is_dir() else []:
-            for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
-                m = re.match(r"^\s*COMMITS?:\s*(.+)$", line)
-                if m:
-                    shas += re.findall(r"\b[0-9a-f]{7,40}\b", m.group(1))
+        shas = coder_commits(run_dir, task)
         if not shas:
             findings.append(f"task {task}: DONE без строки COMMITS: в отчётах кодера (reports/task{task}-coder*.md)")
         for sha in shas:
             if not git_has_commit(root, sha):
                 findings.append(f"task {task}: коммита {sha} нет в репозитории {root}")
         accept = reports / f"accept-task{task}.md"
-        if not re.search(r"^ACCEPT:.*\bPASS\b", first_line(accept)):
+        if not acceptance_pass(first_line(accept), task) and not manual_acceptance(reports, task, shas, root):
             findings.append(f"task {task}: DONE без reports/accept-task{task}.md с ACCEPT … PASS")
     for line, _ in pending_open(run_dir, now):
         findings.append(f"pending.log: OPEN — {line}")
@@ -1046,6 +1119,13 @@ def main(argv):
         if len(argv) < 2:
             raise SystemExit("использование: supervisor-tick.py budgets <SIMPLE|MEDIUM|COMPLEX> [--budget=…]")
         print(budgets_section(argv[1], argv[2:]), end="")
+        return 0
+    if argv and argv[0] == "status":
+        if len(argv) != 2:
+            raise SystemExit("usage: supervisor-tick.py status <run-dir>")
+        run = validate_run_directory(argv[1])
+        progress = run_progress(run, plan_tasks(run), read_runs(run), state_budgets(run))
+        print(json.dumps({"phase": state_phase(run), "checks": check_activity(run), **progress}, ensure_ascii=False))
         return 0
     if argv and argv[0] == "plan":
         if len(argv) != 2:

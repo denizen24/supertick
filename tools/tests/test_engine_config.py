@@ -236,14 +236,15 @@ class Rule3Access(unittest.TestCase):
         self.assertEqual([e["code"] for e in errors], ["access_widen"])
 
     def test_the_old_sandbox_key_of_1_1_x_still_sets_the_mode(self):
-        self.assertEqual(self.access("spec-verifier", sandbox="workspace-write")[0], "write")
+        access, error = self.access("spec-verifier", sandbox="workspace-write")
+        self.assertEqual(access, "read")
+        self.assertIn("workspace-write", error)
         self.assertEqual(self.access("coder", sandbox="read-only")[0], "read")
 
-    def test_a_role_with_commands_takes_write_flags_where_read_mode_blocks_the_shell(self):
+    def test_a_read_role_with_commands_is_not_promoted_to_write(self):
         cfg = {"roles": {"spec-verifier": "cursor"}}
-        cursor = ec.build_argv(cfg, "claude-code", "spec-verifier", None, "/r", "/p.md", available=ALL_BINS)
-        self.assertEqual(cursor["access"], "write")
-        self.assertEqual(cursor["argv"][cursor["argv"].index("--sandbox") + 1], "enabled")
+        with self.assertRaisesRegex(ValueError, "cannot run this role's commands read-only"):
+            ec.build_argv(cfg, "claude-code", "spec-verifier", None, "/r", "/p.md", available=ALL_BINS)
         codex = ec.build_argv({"roles": {"spec-verifier": "codex"}}, "claude-code", "spec-verifier", None, "/r", "/p.md", available=ALL_BINS)
         self.assertEqual(codex["access"], "read", "в песочнице codex чтение shell не блокирует")
         self.assertEqual(codex["argv"][codex["argv"].index("--sandbox") + 1], "read-only")
